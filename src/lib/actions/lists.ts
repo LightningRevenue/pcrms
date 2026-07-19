@@ -60,7 +60,7 @@ export async function getListPeople(entityIds: string[]) {
 export async function getListOpportunities(entityIds: string[]) {
   return db.opportunity.findMany({
     where: { id: { in: entityIds } },
-    include: { company: true, contact: true, owner: true },
+    include: { company: true, contact: true, owner: true, createdBy: true },
     orderBy: { createdAt: "desc" },
   });
 }
