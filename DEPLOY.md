@@ -66,14 +66,25 @@ DATABASE_URL="postgresql://crm:crm@localhost:5433/crm"
 REDIS_URL="redis://localhost:6380"
 
 AUTH_SECRET="<paste the openssl rand -base64 32 value from step 0>"
+AUTH_URL="https://your-domain.com"
 AUTH_GOOGLE_ID="<your Google OAuth client ID>"
 AUTH_GOOGLE_SECRET="<your NEW Google OAuth client secret>"
 ```
+
+`AUTH_URL` must be set to the exact public URL the app is served at —
+without it, Auth.js falls back to inferring the host from the request, which
+behind an nginx reverse proxy produces mismatched/`localhost` callback URLs and
+Google rejects the sign-in with `redirect_uri_mismatch`.
 
 `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` come from the same Google Cloud OAuth
 client used in dev — but add this EC2 instance's URL to the client's **Authorized
 redirect URIs** first: `https://your-domain.com/api/auth/callback/google` (or
 `http://<ec2-ip>:3000/api/auth/callback/google` if you're not on a domain yet).
+
+Also note: Auth.js needs `trustHost: true` in `src/lib/auth.ts` to work behind
+any reverse proxy (nginx here) — without it every request is rejected with
+`UntrustedHost`. This is already set in the codebase, but if you ever see that
+error after a fresh clone, that's the first thing to check.
 
 ## 5. Start Postgres, Redis, and the background workers
 
