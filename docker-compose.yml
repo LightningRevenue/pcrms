@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: crm
+      POSTGRES_DB: crm
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+
+  gmail-sync-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/gmail-sync-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
+
+  import-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/import-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+
+  sequence-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/sequence-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
+
+  imap-poll-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/imap-poll-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,573 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Auth.js required models — https://authjs.dev/getting-started/adapters/prisma
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts        Account[]
+  sessions        Session[]
+  people          Person[] @relation("PersonCreatedBy")
+  ownedPeople     Person[] @relation("PersonOwner")
+  companies       Company[]
+  activity        Activity[]
+  sentEmails      Email[]
+  emailTemplates  EmailTemplate[]
+  notifications   Notification[]
+  workflows       Workflow[]
+  importBatches   ImportBatch[]
+  tasks           Task[]
+  ownedOpportunities Opportunity[] @relation("OpportunityOwner")
+  createdOpportunities Opportunity[] @relation("OpportunityCreatedBy")
+  notes           Note[]
+  sequences       Sequence[]
+  sequenceEnrollments SequenceEnrollment[]
+  favorites       Favorite[]
+  mailboxAccounts MailboxAccount[]
+  lists           List[]
+  mailboxPreferences UserMailboxPreference[]
+}
+
+// Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
+model Favorite {
+  id         String   @id @default(cuid())
+  entityType String   // "company" | "person" | "opportunity"
+  entityId   String
+  name       String
+  href       String
+  createdAt  DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entityType, entityId])
+  @@index([userId, createdAt])
+}
+
+// A List holds one entity type only (fixed at creation). Membership rows (ListItem)
+// are polymorphic like Favorite — entityId points into Company/Person/Opportunity
+// depending on the parent List's entityType, validated in the action layer, not the schema.
+model List {
+  id         String   @id @default(cuid())
+  name       String
+  entityType String   // "company" | "person" | "opportunity"
+  createdAt  DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  items ListItem[]
+}
+
+model ListItem {
+  id       String   @id @default(cuid())
+  entityId String
+  addedAt  DateTime @default(now())
+
+  listId String
+  list   List   @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, entityId])
+  @@index([listId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// CRM models — Company/Person/Opportunity CRUD comes next
+model Company {
+  id             String   @id @default(cuid())
+  name           String
+  domain         String?
+  address        String?
+  linkedin       String?
+  annualRevenue  String?
+  createdAt      DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  people        Person[]
+  opportunities Opportunity[]
+}
+
+model Person {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String?
+  email     String?
+  phone     String?
+  jobTitle  String?
+  linkedin  String?
+  createdAt DateTime @default(now())
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  createdById String?
+  createdBy   User?   @relation("PersonCreatedBy", fields: [createdById], references: [id])
+
+  ownerId String?
+  owner   User?   @relation("PersonOwner", fields: [ownerId], references: [id])
+
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  opportunities Opportunity[]
+  emails        Email[]
+  tasks         Task[]
+  notes         Note[]
+  sequenceEnrollments SequenceEnrollment[]
+}
+
+// Unified activity log for Person/Company/Opportunity timelines. entityId is not a
+// relation (rows can outlive their entity being deleted) so nothing cascades from here.
+model Activity {
+  id        String   @id @default(cuid())
+  entityType String  // "person" | "company" | "opportunity"
+  entityId  String
+  kind      String   @default("field_update") // "created" | "field_update" | "opportunity_created" | "stage_changed" | "task_created" | "task_completed" | "email_sent" | "person_removed" | "company_removed"
+  field     String?
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
+
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  type        String    @default("general") // "call" | "email" | "event" | "meet" | "general"
+  priority    String    @default("medium") // "low" | "medium" | "high"
+  dueAt       DateTime?
+  done        Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  opportunities TaskOpportunity[]
+
+  @@index([personId])
+}
+
+model Opportunity {
+  id        String   @id @default(cuid())
+  name      String
+  value     Int      @default(0)
+  stage     String   @default("New")
+  closeDate DateTime?
+  createdAt DateTime @default(now())
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  contactId String?
+  contact   Person? @relation(fields: [contactId], references: [id])
+
+  ownerId String?
+  owner   User?   @relation("OpportunityOwner", fields: [ownerId], references: [id])
+
+  createdById String?
+  createdBy   User?   @relation("OpportunityCreatedBy", fields: [createdById], references: [id])
+
+  emails EmailOpportunity[]
+  tasks  TaskOpportunity[]
+  notes  NoteOpportunity[]
+}
+
+model PipelineStage {
+  id        String   @id @default(cuid())
+  label     String
+  order     Int      @default(0)
+  outcome   String   @default("open") // "open" | "won" | "lost"
+  createdAt DateTime @default(now())
+
+  @@unique([label])
+}
+
+model Email {
+  id              String   @id @default(cuid())
+  gmailMessageId  String?  @unique
+  gmailThreadId   String?
+  messageIdHeader String?
+  // Message-ID this one replies to (In-Reply-To header) — used to thread SMTP/IMAP mail,
+  // which has no gmailThreadId, by walking the reply chain back to its root.
+  inReplyTo       String?
+  direction       String   // "sent" | "received"
+  from            String
+  to              String[]
+  cc              String[]
+  bcc             String[]
+  subject         String
+  bodyHtml        String
+  sentAt          DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  // Null when the message came in over IMAP from an address not recognized as a CRM contact.
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  senderId String?
+  sender   User?   @relation(fields: [senderId], references: [id])
+
+  // Set when synced/sent via an Outreach Inbox (SMTP/IMAP) rather than the Gmail OAuth account.
+  mailboxAccountId String?
+  mailboxAccount   MailboxAccount? @relation(fields: [mailboxAccountId], references: [id], onDelete: SetNull)
+  // IMAP UIDs are only unique per-mailbox, so uniqueness is scoped to mailboxAccountId — dedupes polling.
+  imapUid          Int?
+
+  opens EmailOpen[]
+  opportunities EmailOpportunity[]
+
+  @@unique([mailboxAccountId, imapUid])
+  @@index([personId])
+  @@index([gmailThreadId])
+}
+
+model EmailOpportunity {
+  emailId       String
+  email         Email       @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@id([emailId, opportunityId])
+  @@index([opportunityId])
+}
+
+model TaskOpportunity {
+  taskId        String
+  task          Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, opportunityId])
+  @@index([opportunityId])
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String
+  bodyHtml  String
+  createdAt DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  sequenceSteps SequenceStep[]
+}
+
+model CronJobRun {
+  id           String   @id @default(cuid())
+  job          String   // "gmail-reply-sync"
+  status       String   // "success" | "error" | "running"
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+  emailsFound  Int      @default(0)
+  error        String?
+
+  @@index([job, startedAt])
+}
+
+model CustomFieldDefinition {
+  id         String   @id @default(cuid())
+  objectType String   // "company" | "person"
+  key        String
+  label      String
+  type       String   @default("TEXT") // "TEXT" | "NUMBER" | "DATE" | "SELECT"
+  options    String[] @default([]) // choices, only used when type = "SELECT"
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  values CustomFieldValue[]
+
+  @@unique([objectType, key])
+}
+
+model CustomFieldValue {
+  id           String   @id @default(cuid())
+  recordId     String
+  value        String?
+  updatedAt    DateTime @updatedAt
+
+  definitionId String
+  definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, recordId])
+  @@index([recordId])
+}
+
+model ImportBatch {
+  id          String   @id @default(cuid())
+  name        String
+  objectType  String   // "company" | "person"
+  status      String   @default("pending") // "pending" | "processing" | "done" | "failed"
+  totalRows   Int      @default(0)
+  successRows Int      @default(0)
+  errorRows   Int      @default(0)
+  errors      Json?
+  createdAt   DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  companies Company[]
+  people    Person[]
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  kind      String   // "email_reply"
+  title     String
+  body      String?
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+}
+
+// Outreach mailbox connected via raw SMTP/IMAP creds (no OAuth) — used for sending sequence
+// emails from an inbox other than the user's connected Gmail. Rules/scheduling not built yet.
+model MailboxAccount {
+  id         String   @id @default(cuid())
+  label      String
+  email      String
+  smtpHost   String
+  smtpPort   Int      @default(587)
+  imapHost   String
+  imapPort   Int      @default(993)
+  username   String
+  // ponytail: stored plain, no secrets vault wired up yet. Encrypt at rest before handling real customer creds.
+  password   String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  // Last connection check result, set by checkMailboxAccount — not a scheduled/background check.
+  smtpStatus    String?   // "ok" | "error"
+  smtpError     String?
+  imapStatus    String?   // "ok" | "error"
+  imapError     String?
+  lastCheckedAt DateTime?
+
+  // High-water mark for IMAP polling — only UIDs above this have been fetched into Email rows.
+  imapLastUid Int @default(0)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  emails Email[]
+  defaultForUsers UserMailboxPreference[]
+
+  @@index([createdById])
+}
+
+// A user's chosen set of "my mailboxes" among the connected outreach inboxes — surfaced in
+// Settings > General so a user can scope which SMTP/IMAP accounts they send from by default,
+// out of every mailbox the workspace has connected. Many-to-many: a mailbox can be picked by
+// several users, and a user can pick several mailboxes.
+model UserMailboxPreference {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  mailboxAccountId String
+  mailboxAccount   MailboxAccount @relation(fields: [mailboxAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, mailboxAccountId])
+  @@index([mailboxAccountId])
+}
+
+model WorkspaceSetting {
+  key   String @id
+  value String
+}
+
+model Workflow {
+  id          String   @id @default(cuid())
+  name        String
+  active      Boolean  @default(false)
+  triggerType String?
+  createdAt   DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+}
+
+model EmailOpen {
+  id        String   @id @default(cuid())
+  openedAt  DateTime @default(now())
+  ip        String?
+  userAgent String?
+
+  emailId String
+  email   Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  @@index([emailId])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  opportunities NoteOpportunity[]
+
+  @@index([personId])
+}
+
+model NoteOpportunity {
+  noteId        String
+  note          Note        @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, opportunityId])
+  @@index([opportunityId])
+}
+
+model Sequence {
+  id        String   @id @default(cuid())
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+}
+
+model SequenceStep {
+  id    String @id @default(cuid())
+  order Int    @default(0)
+  type  String // "email" | "task" | "note"
+
+  // Delay from enrollment start (cumulative, not from previous step).
+  delayDays  Int @default(0)
+  delayHours Int @default(0)
+
+  // type: "email" — either templateId (send template as-is, still interpolated) or
+  // subject/bodyHtml for a custom-written step. Never both meaningfully used at once.
+  templateId String?
+  template   EmailTemplate? @relation(fields: [templateId], references: [id])
+  subject    String?
+  bodyHtml   String?
+
+  // type: "task"
+  taskTitle       String?
+  taskDescription String?
+  taskType        String? // "call" | "email" | "event" | "meet" | "general"
+  taskPriority    String? // "low" | "medium" | "high"
+
+  // type: "note"
+  noteBody String?
+
+  sequenceId String
+  sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  runs SequenceStepRun[]
+
+  @@index([sequenceId, order])
+}
+
+model SequenceEnrollment {
+  id          String    @id @default(cuid())
+  status      String    @default("active") // "active" | "completed" | "cancelled"
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+
+  sequenceId String
+  sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  enrolledById String?
+  enrolledBy   User?   @relation(fields: [enrolledById], references: [id])
+
+  runs SequenceStepRun[]
+
+  @@unique([sequenceId, personId])
+  @@index([personId])
+}
+
+model SequenceStepRun {
+  id           String    @id @default(cuid())
+  status       String    @default("pending") // "pending" | "sent" | "failed" | "skipped"
+  scheduledFor DateTime
+  executedAt   DateTime?
+  error        String?
+
+  enrollmentId String
+  enrollment   SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  stepId String
+  step   SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, stepId])
+  @@index([status, scheduledFor])
+}
