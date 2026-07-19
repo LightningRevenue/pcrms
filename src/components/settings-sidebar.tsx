@@ -27,6 +27,7 @@ import {
   Inbox,
   BellRing,
   Phone,
+  BookOpenCheck,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -68,6 +69,7 @@ const SECTIONS = [
     label: "Resources",
     items: [
       { href: "/settings/email-templates", label: "Email Templates", icon: FileText },
+      { href: "/settings/playbooks", label: "Playbook Templates", icon: BookOpenCheck },
     ],
   },
   {

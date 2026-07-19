@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Mail, Phone, Briefcase, Link2, CalendarDays, UserCircle, Plus, Building2, ArrowUpRight, X, Banknote, GitBranch } from "lucide-react";
+import { Mail, Phone, Briefcase, Link2, CalendarDays, UserCircle, Plus, Building2, ArrowUpRight, X, Banknote, GitBranch, BookOpen } from "lucide-react";
 import type { Company, ImportBatch, List, Opportunity, Person, Sequence, SequenceEnrollment, User } from "@prisma/client";
 import { FieldSection } from "@/components/field-section";
 import { FieldRow } from "@/components/field-row";
@@ -12,6 +12,7 @@ import { CompanyAutocompleteField } from "@/components/company-autocomplete-fiel
 import { CompanyLogo } from "@/components/company-logo";
 import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
+import { ContactPlaybooksPanel } from "@/components/contact-playbooks-panel";
 import { updatePersonField, setPersonCompany, setPersonOwner, type PersonField } from "@/lib/actions/contacts";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
 
@@ -54,6 +55,7 @@ export function ContactDetailPanel({
 }) {
   const [firstName, setFirstName] = useState(contact.firstName);
   const [lastName, setLastName] = useState(contact.lastName ?? "");
+  const [showPlaybooks, setShowPlaybooks] = useState(false);
   const [, startTransition] = useTransition();
   const createdAt = relativeTime(contact.createdAt);
   const createdBy = contact.importBatch?.name ?? contact.createdBy?.name ?? contact.createdBy?.email ?? "—";
@@ -84,6 +86,16 @@ export function ContactDetailPanel({
         />
       </div>
       <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
+
+      <button
+        onClick={() => setShowPlaybooks(true)}
+        className="mt-3 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+      >
+        <BookOpen size={14} strokeWidth={1.75} />
+        Playbooks
+      </button>
+
+      {showPlaybooks && <ContactPlaybooksPanel onClose={() => setShowPlaybooks(false)} />}
 
       <div className="mt-6 border-t border-border">
         <p className="text-[12px] font-medium text-subtle uppercase tracking-wide pt-4 px-1">
