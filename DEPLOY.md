@@ -1,6 +1,6 @@
 # Deploying to EC2 from GitHub
 
-This guide takes a fresh EC2 instance to a running CRM: Postgres, Redis, the four
+This guide takes a fresh EC2 instance to a running CRM: Postgres, Redis, the five
 background workers, and the Next.js app itself, all via Docker.
 
 ## 0. Before you start: secrets
@@ -93,9 +93,9 @@ docker compose up -d
 ```
 
 This builds and starts `postgres`, `redis`, `gmail-sync-worker`,
-`import-worker`, `sequence-worker`, and `imap-poll-worker` — everything except
-the Next.js app itself, which docker-compose.yml doesn't define a service for
-yet (it's meant to run via `npm`/PM2 alongside, see step 7).
+`import-worker`, `sequence-worker`, `imap-poll-worker`, and `campaign-worker` —
+everything except the Next.js app itself, which docker-compose.yml doesn't
+define a service for yet (it's meant to run via `npm`/PM2 alongside, see step 7).
 
 Check everything came up:
 
@@ -103,7 +103,7 @@ Check everything came up:
 docker compose ps
 ```
 
-All five containers should show `Up`. If one is missing, check its logs:
+All six containers should show `Up`. If one is missing, check its logs:
 
 ```bash
 docker compose logs <service-name> --tail 50
