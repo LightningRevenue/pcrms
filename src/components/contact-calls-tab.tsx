@@ -61,7 +61,7 @@ export function ContactCallsTab({ calls }: { calls: CallRow[] }) {
               </span>
             </div>
             {call.recordingUrl && (
-              <audio controls preload="none" src={call.recordingUrl} className="w-full h-8 mt-2" />
+              <audio controls preload="none" src={`/api/twilio/recordings/${call.id}`} className="w-full h-8 mt-2" />
             )}
           </div>
         );
