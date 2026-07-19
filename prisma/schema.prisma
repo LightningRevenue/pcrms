@@ -460,6 +460,17 @@ model Workflow {
   createdBy   User?   @relation(fields: [createdById], references: [id])
 }
 
+// One row per built-in dashboard view. `kind` selects which hardcoded stats
+// query/component the page renders — dashboards aren't user-built yet, so this
+// is a thin lookup table (name + ordering), not a report-builder schema.
+model Dashboard {
+  id        String   @id @default(cuid())
+  name      String
+  kind      String   @unique // "sales-tracking" — maps to a specific dashboard view
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
 model EmailOpen {
   id        String   @id @default(cuid())
   openedAt  DateTime @default(now())
