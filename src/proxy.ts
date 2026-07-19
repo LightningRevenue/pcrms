@@ -8,5 +8,8 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
+  // api/track must stay excluded — the open-tracking pixel is fetched by the recipient's
+  // email client, which has no CRM session, so it always fails the auth check and never
+  // reaches the route handler if this guard applies to it.
+  matcher: ["/((?!api/auth|api/track|_next/static|_next/image|favicon.ico).*)"],
 };
