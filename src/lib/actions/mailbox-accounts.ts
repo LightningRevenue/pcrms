@@ -290,6 +290,17 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     },
   });
 
+  await db.activity.create({
+    data: {
+      entityType: "person",
+      entityId: input.personId,
+      kind: "email_sent",
+      field: "Email",
+      newValue: subject,
+      actorId: input.senderId,
+    },
+  });
+
   return email;
 }
 
