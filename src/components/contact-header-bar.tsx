@@ -9,6 +9,7 @@ import { ConvertToOpportunityPanel, type NewOpportunityDraft } from "@/component
 import { AddToSequencePanel } from "@/components/add-to-sequence-panel";
 import { FavoriteButton } from "@/components/favorite-button";
 import { EmailComposer, type ComposerDraft, type MailboxOption } from "@/components/email-composer";
+import { CallButton } from "@/components/call-button";
 import { convertContactToOpportunity } from "@/lib/actions/opportunities";
 import { deleteContacts } from "@/lib/actions/contacts";
 
@@ -19,6 +20,7 @@ export function ContactHeaderBar({
   total,
   companyName,
   personEmail,
+  personPhone,
   stages,
   isFavorited,
   mailboxes,
@@ -29,6 +31,7 @@ export function ContactHeaderBar({
   total: number;
   companyName: string | null;
   personEmail: string | null;
+  personPhone: string | null;
   stages: PipelineStage[];
   isFavorited: boolean;
   mailboxes: MailboxOption[];
@@ -92,6 +95,7 @@ export function ContactHeaderBar({
           <Mail size={14} strokeWidth={1.75} />
           Send Email
         </button>
+        <CallButton personId={contactId} phone={personPhone} name={name} />
         <button
           onClick={() => setConverting(true)}
           disabled={pending}

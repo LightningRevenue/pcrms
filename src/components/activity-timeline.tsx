@@ -1,4 +1,4 @@
-import { PlusCircle, Pencil, ArrowRightLeft, CheckSquare, Mail, UserMinus } from "lucide-react";
+import { PlusCircle, Pencil, ArrowRightLeft, CheckSquare, Mail, UserMinus, Phone } from "lucide-react";
 import type { User } from "@prisma/client";
 
 export type ActivityEntry = {
@@ -29,6 +29,7 @@ const ICONS: Record<string, typeof PlusCircle> = {
   task_created: CheckSquare,
   task_completed: CheckSquare,
   email_sent: Mail,
+  call_logged: Phone,
   person_removed: UserMinus,
   company_removed: UserMinus,
 };
@@ -74,6 +75,12 @@ function describe(e: ActivityEntry, actor: string) {
         <>
           email <span className="font-medium">{e.newValue}</span> sent by{" "}
           <span className="font-medium">{actor}</span>
+        </>
+      );
+    case "call_logged":
+      return (
+        <>
+          <span className="font-medium">{e.newValue}</span> by <span className="font-medium">{actor}</span>
         </>
       );
     case "person_removed":

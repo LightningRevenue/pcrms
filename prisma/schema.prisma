@@ -36,6 +36,8 @@ model User {
   mailboxPreferences UserMailboxPreference[]
   campaigns       Campaign[]
   campaignMembers CampaignMember[]
+  twilioAccountUpdates TwilioAccount[]
+  calls Call[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
@@ -163,6 +165,7 @@ model Person {
   notes         Note[]
   sequenceEnrollments SequenceEnrollment[]
   campaignMembers CampaignMember[]
+  calls Call[]
 }
 
 // Unified activity log for Person/Company/Opportunity timelines. entityId is not a
@@ -424,6 +427,62 @@ model MailboxAccount {
   campaigns CampaignMailbox[]
 
   @@index([createdById])
+}
+
+// Workspace-wide Twilio Voice credentials — a single row (id fixed to "default"),
+// not per-user, since calls go out from one shared Twilio number. Configured in
+// Settings > Accounts > Twilio instead of env vars so it can be rotated without a
+// redeploy.
+//
+// accountSid/authToken/phoneNumber authenticate server-side REST calls (placing
+// calls, fetching recordings). apiKeySid/apiKeySecret + twimlAppSid are the
+// separate credential pair the browser-side Voice SDK needs: the server mints a
+// short-lived access token (signed with the API key) that the browser uses to
+// register with Twilio and place a WebRTC call through the TwiML App, which
+// points at this app's /api/twilio/voice webhook.
+model TwilioAccount {
+  id          String   @id @default("default")
+  accountSid  String
+  // ponytail: stored plain, no secrets vault wired up yet — same tradeoff as MailboxAccount.password.
+  authToken   String
+  phoneNumber String
+
+  apiKeySid    String?
+  apiKeySecret String?
+  twimlAppSid  String?
+
+  updatedAt   DateTime @updatedAt
+
+  updatedById String?
+  updatedBy   User?   @relation(fields: [updatedById], references: [id])
+}
+
+// One row per browser-initiated call. Created when the agent clicks "Call" and
+// the client requests an access token (status "initiated"), then updated by the
+// /api/twilio/voice-status webhook as Twilio reports status changes, and again
+// by /api/twilio/recording-status once the recording is ready.
+model Call {
+  id            String    @id @default(cuid())
+  twilioCallSid String?   @unique
+  direction     String    @default("outbound") // "outbound" — inbound calls aren't handled yet
+  status        String    @default("initiated") // "initiated" | "ringing" | "in-progress" | "completed" | "failed" | "no-answer" | "busy"
+  toNumber      String
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  durationSec   Int?
+
+  recordingSid      String?
+  recordingUrl       String?
+  recordingDurationSec Int?
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  @@index([personId])
+  @@index([twilioCallSid])
 }
 
 // A user's chosen set of "my mailboxes" among the connected outreach inboxes — surfaced in

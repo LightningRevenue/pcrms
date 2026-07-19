@@ -26,6 +26,7 @@ import {
   Target,
   Inbox,
   BellRing,
+  Phone,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -42,6 +43,7 @@ const SECTIONS = [
       { href: "/settings/accounts/emails", label: "Emails", icon: Mail },
       { href: "/settings/accounts/calendars", label: "Calendars", icon: Calendar },
       { href: "/settings/accounts/outreach-inboxes", label: "Outreach Inboxes", icon: Inbox },
+      { href: "/settings/accounts/twilio", label: "Twilio", icon: Phone },
     ],
   },
   {

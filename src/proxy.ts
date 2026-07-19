@@ -11,5 +11,7 @@ export const config = {
   // api/track must stay excluded — the open-tracking pixel is fetched by the recipient's
   // email client, which has no CRM session, so it always fails the auth check and never
   // reaches the route handler if this guard applies to it.
-  matcher: ["/((?!api/auth|api/track|_next/static|_next/image|favicon.ico).*)"],
+  // api/twilio must stay excluded too — Twilio's servers call these webhooks directly
+  // (TwiML request, recording-status callback) with no CRM session cookie either.
+  matcher: ["/((?!api/auth|api/track|api/twilio|_next/static|_next/image|favicon.ico).*)"],
 };

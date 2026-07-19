@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type {
+  Call,
   Email,
   EmailOpen,
   EmailOpportunity,
@@ -13,12 +14,13 @@ import type {
   TaskOpportunity,
   User,
 } from "@prisma/client";
-import { History, CheckSquare, FileText, Paperclip, Mail, Calendar } from "lucide-react";
+import { History, CheckSquare, FileText, Paperclip, Mail, Calendar, Phone } from "lucide-react";
 import { ActivityTimeline, type ActivityEntry } from "@/components/activity-timeline";
 import { EmailThreadList } from "@/components/email-thread-list";
 import type { MailboxOption } from "@/components/email-composer";
 import { ContactTasksTab } from "@/components/contact-tasks-tab";
 import { ContactNotesTab } from "@/components/contact-notes-tab";
+import { ContactCallsTab } from "@/components/contact-calls-tab";
 
 const TABS = [
   { key: "timeline", label: "Timeline", icon: History },
@@ -26,6 +28,7 @@ const TABS = [
   { key: "notes", label: "Notes", icon: FileText },
   { key: "files", label: "Files", icon: Paperclip },
   { key: "emails", label: "Emails", icon: Mail },
+  { key: "calls", label: "Calls", icon: Phone },
   { key: "calendar", label: "Calendar", icon: Calendar },
 ] as const;
 
@@ -41,6 +44,7 @@ export function ContactTabs({
   notes,
   opportunities,
   mailboxes,
+  calls,
 }: {
   events: ActivityEntry[];
   personId: string;
@@ -51,6 +55,7 @@ export function ContactTabs({
   notes: (Note & { createdBy: User | null; opportunities: (NoteOpportunity & { opportunity: Opportunity })[] })[];
   opportunities: Opportunity[];
   mailboxes: MailboxOption[];
+  calls: (Call & { createdBy: User | null })[];
 }) {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab");
@@ -95,6 +100,8 @@ export function ContactTabs({
             opportunities={opportunities}
             mailboxes={mailboxes}
           />
+        ) : active === "calls" ? (
+          <ContactCallsTab calls={calls} />
         ) : (
           <p className="text-[13px] text-subtle">Coming soon.</p>
         )}

@@ -19,7 +19,7 @@ export default async function ContactDetailPage({
 }) {
   const { id } = await params;
 
-  const [people, contact, activity, emails, customFields, tasks, notes, opportunities, stages, sequenceEnrollments, favorited, mailboxes, lists, users] = await Promise.all([
+  const [people, contact, activity, emails, customFields, tasks, notes, opportunities, stages, sequenceEnrollments, favorited, mailboxes, lists, users, calls] = await Promise.all([
     db.person.findMany({ select: { id: true }, orderBy: { createdAt: "desc" } }),
     db.person.findUnique({
       where: { id },
@@ -56,6 +56,11 @@ export default async function ContactDetailPage({
     listMyMailboxOptions(),
     listListsForEntity("person", id),
     listMembers(),
+    db.call.findMany({
+      where: { personId: id },
+      orderBy: { startedAt: "desc" },
+      include: { createdBy: true },
+    }),
   ]);
 
   if (!contact) notFound();
@@ -74,6 +79,7 @@ export default async function ContactDetailPage({
         total={people.length}
         companyName={contact.company?.name ?? null}
         personEmail={contact.email}
+        personPhone={contact.phone}
         stages={stages}
         isFavorited={favorited}
         mailboxes={mailboxes}
@@ -98,6 +104,7 @@ export default async function ContactDetailPage({
             notes={notes}
             opportunities={openOpportunities}
             mailboxes={mailboxes}
+            calls={calls}
           />
         </div>
       </div>
