@@ -79,6 +79,20 @@ services:
       DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
       REDIS_URL: redis://redis:6379
 
+  campaign-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/campaign-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+
 volumes:
   pgdata:
   redisdata:

@@ -213,6 +213,86 @@ export async function checkAllMailboxAccounts() {
   return results;
 }
 
+export type SendViaMailboxAccountInput = {
+  mailboxAccountId: string;
+  personId: string;
+  to: string[];
+  subject: string;
+  bodyHtml: string;
+  senderId?: string;
+  bcc?: string[];
+  replyToEmailId?: string;
+  opportunityIds?: string[];
+  campaignMemberId?: string;
+  // Injects an open-tracking pixel pointed at /api/track/open/<id> — the caller must
+  // pre-generate the Email id (crypto.randomUUID()) so the pixel URL matches the row
+  // created below. Same approach as sequence-runner.ts's Gmail sends.
+  trackingPixelHtml?: string;
+  id?: string;
+};
+
+// Core SMTP send, with no auth() dependency — safe to call from a background worker
+// (e.g. campaign-runner.ts) as well as from the authenticated sendViaSmtp action below.
+export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
+  if (input.to.length === 0) throw new Error("Add at least one recipient");
+  if (!input.subject.trim()) throw new Error("Add a subject");
+
+  const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id: input.mailboxAccountId } });
+
+  const replyTo = input.replyToEmailId
+    ? await db.email.findUnique({ where: { id: input.replyToEmailId } })
+    : null;
+
+  const [subject, interpolatedBody] = await Promise.all([
+    interpolateForPerson(input.subject, input.personId),
+    interpolateForPerson(input.bodyHtml, input.personId),
+  ]);
+  const bodyHtml = interpolatedBody + (input.trackingPixelHtml ?? "");
+
+  const bcc = input.bcc ?? [];
+
+  const transport = nodemailer.createTransport({
+    host: account.smtpHost,
+    port: account.smtpPort,
+    secure: account.smtpPort === 465,
+    auth: { user: account.username, pass: account.password },
+  });
+
+  const sent = await transport.sendMail({
+    from: account.email,
+    to: input.to,
+    bcc: bcc.length ? bcc : undefined,
+    subject,
+    html: bodyHtml,
+    inReplyTo: replyTo?.messageIdHeader ?? undefined,
+    references: replyTo?.messageIdHeader ?? undefined,
+  });
+
+  const email = await db.email.create({
+    data: {
+      id: input.id,
+      messageIdHeader: sent.messageId,
+      inReplyTo: replyTo?.messageIdHeader ?? undefined,
+      direction: "sent",
+      from: account.email,
+      to: input.to,
+      cc: [],
+      bcc,
+      subject,
+      bodyHtml,
+      personId: input.personId,
+      senderId: input.senderId,
+      mailboxAccountId: account.id,
+      campaignMemberId: input.campaignMemberId,
+      opportunities: input.opportunityIds?.length
+        ? { createMany: { data: input.opportunityIds.map((opportunityId) => ({ opportunityId })) } }
+        : undefined,
+    },
+  });
+
+  return email;
+}
+
 export type SendViaSmtpInput = {
   mailboxAccountId: string;
   personId: string;
@@ -227,59 +307,12 @@ export async function sendViaSmtp(input: SendViaSmtpInput) {
   const session = await auth();
   if (!session?.user?.id || !session.user.email) throw new Error("Not authenticated");
 
-  if (input.to.length === 0) throw new Error("Add at least one recipient");
-  if (!input.subject.trim()) throw new Error("Add a subject");
-
-  const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id: input.mailboxAccountId } });
-
-  const replyTo = input.replyToEmailId
-    ? await db.email.findUnique({ where: { id: input.replyToEmailId } })
-    : null;
-
-  const [subject, bodyHtml] = await Promise.all([
-    interpolateForPerson(input.subject, input.personId),
-    interpolateForPerson(input.bodyHtml, input.personId),
-  ]);
-
   // CC the user's own connected Gmail on outreach-mailbox sends so they keep visibility
   // in their normal inbox — replies still land only at the outreach mailbox, never Gmail.
-  const bcc = [session.user.email];
-
-  const transport = nodemailer.createTransport({
-    host: account.smtpHost,
-    port: account.smtpPort,
-    secure: account.smtpPort === 465,
-    auth: { user: account.username, pass: account.password },
-  });
-
-  const sent = await transport.sendMail({
-    from: account.email,
-    to: input.to,
-    bcc,
-    subject,
-    html: bodyHtml,
-    inReplyTo: replyTo?.messageIdHeader ?? undefined,
-    references: replyTo?.messageIdHeader ?? undefined,
-  });
-
-  const email = await db.email.create({
-    data: {
-      messageIdHeader: sent.messageId,
-      inReplyTo: replyTo?.messageIdHeader ?? undefined,
-      direction: "sent",
-      from: account.email,
-      to: input.to,
-      cc: [],
-      bcc,
-      subject,
-      bodyHtml,
-      personId: input.personId,
-      senderId: session.user.id,
-      mailboxAccountId: account.id,
-      opportunities: input.opportunityIds?.length
-        ? { createMany: { data: input.opportunityIds.map((opportunityId) => ({ opportunityId })) } }
-        : undefined,
-    },
+  const email = await sendViaMailboxAccount({
+    ...input,
+    senderId: session.user.id,
+    bcc: [session.user.email],
   });
 
   revalidatePath("/inbox");

@@ -163,7 +163,7 @@ export function MailboxAccountsManager({ accounts: initial }: { accounts: Mailbo
                 onClick={() => handleToggle(account.id, !account.active)}
                 className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] transition-colors ${
                   account.active
-                    ? "bg-emerald-950 text-emerald-400"
+                    ? "bg-emerald-500 text-white"
                     : "bg-muted text-subtle"
                 }`}
               >
@@ -326,9 +326,9 @@ function ConnectionBadge({
   const color = checking
     ? "bg-muted text-subtle"
     : status === "ok"
-      ? "bg-emerald-950 text-emerald-400"
+      ? "bg-emerald-500 text-white"
       : status === "error"
-        ? "bg-red-950 text-red-400"
+        ? "bg-red-500 text-white"
         : "bg-muted text-subtle";
 
   return (

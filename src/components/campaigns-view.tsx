@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { List, Megaphone, ChevronDown, Plus, Trash2 } from "lucide-react";
+import { createCampaign, deleteCampaign } from "@/lib/actions/campaigns";
 
 type Campaign = {
   id: string;
   name: string;
-  active: boolean;
+  status: string;
   createdAt: Date;
+  createdBy: { name: string | null; email: string | null } | null;
+  _count: { members: number };
 };
 
 function relativeTime(date: Date) {
@@ -21,21 +25,26 @@ function relativeTime(date: Date) {
   return `${days}d ago`;
 }
 
-export function CampaignsView() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+const STATUS_STYLE: Record<string, string> = {
+  draft: "bg-muted text-subtle",
+  active: "bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-accent",
+  sent: "bg-muted text-subtle",
+};
+
+export function CampaignsView({ campaigns }: { campaigns: Campaign[] }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   function handleCreate() {
     if (!name.trim()) return;
-    startTransition(() => {
-      setCampaigns((prev) => [
-        { id: crypto.randomUUID(), name: name.trim(), active: true, createdAt: new Date() },
-        ...prev,
-      ]);
+    const trimmed = name.trim();
+    startTransition(async () => {
+      const campaign = await createCampaign(trimmed);
       setCreating(false);
       setName("");
+      router.push(`/marketing/campaigns/${campaign.id}`);
     });
   }
 
@@ -43,14 +52,17 @@ export function CampaignsView() {
     e.preventDefault();
     e.stopPropagation();
     if (!confirm(`Delete "${name}"?`)) return;
-    setCampaigns((prev) => prev.filter((c) => c.id !== id));
+    startTransition(async () => {
+      await deleteCampaign(id);
+      router.refresh();
+    });
   }
 
   return (
     <div className="flex flex-col h-screen">
       <div className="h-12 shrink-0 flex items-center justify-between px-6 border-b border-border">
         <div className="flex items-center gap-1.5 text-[13px]">
-          <Megaphone size={14} strokeWidth={1.75} className="text-pink-400" />
+          <Megaphone size={14} strokeWidth={1.5} className="text-subtle" />
           <span className="font-medium">Campaigns</span>
         </div>
         {creating ? (
@@ -65,7 +77,8 @@ export function CampaignsView() {
             />
             <button
               onClick={handleCreate}
-              className="px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity"
+              disabled={pending}
+              className="px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-60"
             >
               Create
             </button>
@@ -89,10 +102,10 @@ export function CampaignsView() {
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
         <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
-          <List size={14} strokeWidth={1.75} />
+          <List size={14} strokeWidth={1.5} />
           All Campaigns
           <span className="text-subtle">· {campaigns.length}</span>
-          <ChevronDown size={13} strokeWidth={1.75} />
+          <ChevronDown size={13} strokeWidth={1.5} />
         </button>
       </div>
 
@@ -105,16 +118,23 @@ export function CampaignsView() {
         ) : (
           <div className="divide-y divide-border">
             {campaigns.map((c) => (
-              <div key={c.id} className="flex items-center gap-6 px-6 py-3 hover:bg-muted/40 transition-colors group">
+              <a
+                key={c.id}
+                href={`/marketing/campaigns/${c.id}`}
+                className="flex items-center gap-6 px-6 py-3 hover:bg-muted/40 transition-colors group"
+              >
                 <span className="flex-1 min-w-0 flex items-center gap-2">
                   <span className="text-[13px] truncate">{c.name}</span>
                   <span
-                    className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
-                      c.active ? "bg-emerald-500/15 text-emerald-300" : "bg-muted text-subtle"
+                    className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium shrink-0 capitalize ${
+                      STATUS_STYLE[c.status] ?? STATUS_STYLE.draft
                     }`}
                   >
-                    {c.active ? "Active" : "Paused"}
+                    {c.status}
                   </span>
+                </span>
+                <span className="text-[12px] text-subtle shrink-0 w-24 text-right">
+                  {c._count.members} member{c._count.members === 1 ? "" : "s"}
                 </span>
                 <span className="text-[12px] text-subtle shrink-0 w-20 text-right">{relativeTime(c.createdAt)}</span>
                 <button
@@ -122,9 +142,9 @@ export function CampaignsView() {
                   title="Delete campaign"
                   className="p-1 rounded text-subtle opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity shrink-0"
                 >
-                  <Trash2 size={13} strokeWidth={1.75} />
+                  <Trash2 size={13} strokeWidth={1.5} />
                 </button>
-              </div>
+              </a>
             ))}
           </div>
         )}

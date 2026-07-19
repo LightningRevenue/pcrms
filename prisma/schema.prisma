@@ -34,6 +34,8 @@ model User {
   mailboxAccounts MailboxAccount[]
   lists           List[]
   mailboxPreferences UserMailboxPreference[]
+  campaigns       Campaign[]
+  campaignMembers CampaignMember[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
@@ -160,6 +162,7 @@ model Person {
   tasks         Task[]
   notes         Note[]
   sequenceEnrollments SequenceEnrollment[]
+  campaignMembers CampaignMember[]
 }
 
 // Unified activity log for Person/Company/Opportunity timelines. entityId is not a
@@ -267,6 +270,11 @@ model Email {
   // IMAP UIDs are only unique per-mailbox, so uniqueness is scoped to mailboxAccountId — dedupes polling.
   imapUid          Int?
 
+  // Set when this email was a campaign send — lets the campaign dashboard roll up opens
+  // without guessing which Email row belongs to which campaign member.
+  campaignMemberId String?
+  campaignMember   CampaignMember? @relation(fields: [campaignMemberId], references: [id], onDelete: SetNull)
+
   opens EmailOpen[]
   opportunities EmailOpportunity[]
 
@@ -306,6 +314,7 @@ model EmailTemplate {
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
   sequenceSteps SequenceStep[]
+  campaigns     Campaign[]
 }
 
 model CronJobRun {
@@ -412,6 +421,7 @@ model MailboxAccount {
 
   emails Email[]
   defaultForUsers UserMailboxPreference[]
+  campaigns CampaignMailbox[]
 
   @@index([createdById])
 }
@@ -486,6 +496,69 @@ model NoteOpportunity {
 
   @@id([noteId, opportunityId])
   @@index([opportunityId])
+}
+
+// A bulk-email campaign: a one-off send to a static set of people, as opposed to a
+// Sequence's multi-step drip. Membership is captured at build time (CampaignMember),
+// not re-evaluated later — adding someone to a Sequence/other Campaign after the fact
+// doesn't retroactively remove them.
+model Campaign {
+  id        String   @id @default(cuid())
+  name      String
+  status    String   @default("draft") // "draft" | "active" | "sent"
+  createdAt DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  // Subject/body are interpolated per-recipient at send time via interpolateForPerson,
+  // same {{person.x}} / {{company.x}} tokens as Sequence steps.
+  templateId String?
+  template   EmailTemplate? @relation(fields: [templateId], references: [id])
+
+  members  CampaignMember[]
+  mailboxes CampaignMailbox[]
+}
+
+model CampaignMailbox {
+  id       String   @id @default(cuid())
+  addedAt  DateTime @default(now())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  mailboxAccountId String
+  mailboxAccount   MailboxAccount @relation(fields: [mailboxAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, mailboxAccountId])
+  @@index([mailboxAccountId])
+}
+
+model CampaignMember {
+  id      String   @id @default(cuid())
+  addedAt DateTime @default(now())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  // Set when the member was pulled in via a Deal rather than picked directly from Contacts.
+  viaOpportunityId String?
+
+  addedById String?
+  addedBy   User?   @relation(fields: [addedById], references: [id])
+
+  // Per-recipient send state, set once startCampaign enqueues the paced send jobs.
+  sendStatus String    @default("pending") // "pending" | "queued" | "sent" | "failed"
+  sentAt     DateTime?
+  sendError  String?
+
+  emails Email[]
+
+  @@unique([campaignId, personId])
+  @@index([personId])
 }
 
 model Sequence {
