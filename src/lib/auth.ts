@@ -16,6 +16,10 @@ const GOOGLE_SCOPES = [
 ].join(" ");
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Required behind a reverse proxy (nginx) — otherwise Auth.js rejects every request with
+  // UntrustedHost since it can't verify the Host header itself, and silently returns no
+  // session instead of erroring loudly, which is what let unauthenticated requests through.
+  trustHost: true,
   adapter: PrismaAdapter(db),
   providers: [
     Google({
