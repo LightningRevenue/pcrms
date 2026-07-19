@@ -9,6 +9,7 @@ import {
   Check,
   Users,
   ChevronDown,
+  ChevronUp,
   ListFilter,
   ArrowUpDown,
   SlidersHorizontal as OptionsIcon,
@@ -24,11 +25,13 @@ import {
   Trash2,
   History,
   CalendarClock,
+  X,
 } from "lucide-react";
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
-import { deleteContacts } from "@/lib/actions/contacts";
+import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
+import { OwnerSelect } from "@/components/owner-select";
 
 export type PersonRow = Person & { company: Company | null; createdBy: User | null; importBatch: ImportBatch | null };
 export type PersonCustomField = { id: string; key: string; label: string };
@@ -102,6 +105,52 @@ function formatDue(date: Date) {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+type SortDir = "asc" | "desc";
+
+// Raw comparable value behind a column's displayed text — dates sort by
+// timestamp, not by their "2h ago" rendering (which would sort alphabetically).
+function sortValue(
+  p: PersonRow,
+  key: ColumnKey,
+  lastActivityByPerson: Map<string, Activity>,
+  nextTaskByPerson: Map<string, Task>
+): number | string | null {
+  if (key.startsWith("custom:")) return null;
+  switch (key as StandardColumnKey) {
+    case "email":
+      return p.email ?? null;
+    case "createdBy":
+      return p.createdBy?.name ?? p.createdBy?.email ?? null;
+    case "company":
+      return p.company?.name ?? null;
+    case "phone":
+      return p.phone ?? null;
+    case "createdAt":
+      return p.createdAt.getTime();
+    case "jobTitle":
+      return p.jobTitle ?? null;
+    case "linkedin":
+      return p.linkedin ?? null;
+    case "lastActivity": {
+      const a = lastActivityByPerson.get(p.id);
+      return a ? a.createdAt.getTime() : null;
+    }
+    case "nextActivity": {
+      const t = nextTaskByPerson.get(p.id);
+      return t?.dueAt ? t.dueAt.getTime() : null;
+    }
+  }
+}
+
+function compareValues(a: number | string | null, b: number | string | null, dir: SortDir): number {
+  // Rows with no value always sink to the bottom, regardless of direction.
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  const cmp = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
+  return dir === "asc" ? cmp : -cmp;
+}
+
 function useVisibleColumns(customFields: PersonCustomField[]) {
   const allKeys = useMemo<ColumnKey[]>(
     () => [...STANDARD_COLUMNS.map((c) => c.key), ...customFields.map((f) => `custom:${f.id}` as const)],
@@ -132,6 +181,8 @@ function useVisibleColumns(customFields: PersonCustomField[]) {
   return { visible, toggle, allKeys };
 }
 
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
+
 export function ContactsView({
   people,
   lastActivityByPerson,
@@ -139,6 +190,7 @@ export function ContactsView({
   customFields,
   title = "People",
   onAddClick,
+  users = [],
 }: {
   people: PersonRow[];
   lastActivityByPerson: Map<string, Activity>;
@@ -146,6 +198,7 @@ export function ContactsView({
   customFields: PersonCustomField[];
   title?: string;
   onAddClick?: () => void;
+  users?: WorkspaceUser[];
 }) {
   const [view, setView] = useState<"list" | "kanban">("list");
   const { visible: visibleColumns, toggle: toggleColumn } = useVisibleColumns(customFields);
@@ -153,6 +206,23 @@ export function ContactsView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
+  const [sort, setSort] = useState<{ key: ColumnKey; dir: SortDir } | null>(null);
+  const [changingOwner, setChangingOwner] = useState(false);
+
+  function handleSort(key: ColumnKey) {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+  }
+
+  const sortedPeople = useMemo(() => {
+    if (!sort) return people;
+    const withValue = people.map((p) => ({ p, v: sortValue(p, sort.key, lastActivityByPerson, nextTaskByPerson) }));
+    withValue.sort((a, b) => compareValues(a.v, b.v, sort.dir));
+    return withValue.map((x) => x.p);
+  }, [people, sort, lastActivityByPerson, nextTaskByPerson]);
 
   function handleDeleteSelected() {
     const ids = Array.from(selected);
@@ -165,6 +235,16 @@ export function ContactsView({
       if (result.skipped > 0) {
         alert(`${result.deleted} deleted. ${result.skipped} skipped (linked to deals).`);
       }
+    });
+  }
+
+  function handleChangeOwner(ownerId: string | null) {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      await setPersonOwners(ids, ownerId);
+      setChangingOwner(false);
+      setSelected(new Set());
     });
   }
 
@@ -214,29 +294,12 @@ export function ContactsView({
 
           <div className="w-px h-4 bg-border mx-1" />
 
-          {selected.size > 0 ? (
-            <button
-              onClick={handleDeleteSelected}
-              disabled={pending}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-            >
-              <Trash2 size={14} strokeWidth={1.75} />
-              Delete {selected.size} selected
-            </button>
-          ) : (
-            <>
-              <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-                <ListFilter size={14} strokeWidth={1.75} />
-                Filter
-              </button>
-              <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-                <ArrowUpDown size={14} strokeWidth={1.75} />
-                Sort
-              </button>
-              {view === "list" && (
-                <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
-              )}
-            </>
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
+            <ListFilter size={14} strokeWidth={1.75} />
+            Filter
+          </button>
+          {view === "list" && (
+            <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
           )}
         </div>
       </div>
@@ -244,7 +307,7 @@ export function ContactsView({
       <div className="flex-1 min-h-0 overflow-auto">
         {view === "list" ? (
           <ListView
-            people={people}
+            people={sortedPeople}
             visibleColumns={visibleColumns}
             customFields={customFields}
             selected={selected}
@@ -252,6 +315,8 @@ export function ContactsView({
             onComposeEmail={(p) => setDraft({ personId: p.id, to: p.email ? [p.email] : [], contactFirstName: p.firstName })}
             lastActivityByPerson={lastActivityByPerson}
             nextTaskByPerson={nextTaskByPerson}
+            sort={sort}
+            onSort={handleSort}
           />
         ) : (
           <div className="p-6">
@@ -263,6 +328,61 @@ export function ContactsView({
       {view === "list" && (
         <div className="h-9 shrink-0 flex items-center justify-end gap-6 px-6 border-t border-border text-[12px] text-subtle">
           <span>Unique of Emails {people.length}</span>
+        </div>
+      )}
+
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 px-2 py-1.5 rounded-xl border border-border bg-surface shadow-xl">
+          <span className="text-[13px] px-2 text-subtle">{selected.size} selected</span>
+          <div className="w-px h-5 bg-border" />
+          <button
+            onClick={() => setChangingOwner(true)}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <UserCircle size={14} strokeWidth={1.75} />
+            Change Owner
+          </button>
+          <button
+            onClick={handleDeleteSelected}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+          >
+            <Trash2 size={14} strokeWidth={1.75} />
+            Delete
+          </button>
+          <div className="w-px h-5 bg-border" />
+          <button
+            onClick={() => setSelected(new Set())}
+            className="p-1.5 rounded-lg text-subtle hover:bg-muted hover:text-foreground transition-colors"
+            title="Clear selection"
+          >
+            <X size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+
+      {changingOwner && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40" onClick={() => setChangingOwner(false)}>
+          <div
+            className="w-full max-w-xs rounded-lg border border-border bg-surface shadow-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[13px] font-medium">
+              Change owner for {selected.size} contact{selected.size === 1 ? "" : "s"}
+            </p>
+            <div className="mt-3 px-2.5 py-1.5 rounded-md border border-border">
+              <OwnerSelect users={users} ownerId={null} onChange={handleChangeOwner} />
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => setChangingOwner(false)}
+                className="px-3 py-1.5 rounded-md text-[13px] text-subtle hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -388,6 +508,8 @@ function ListView({
   onComposeEmail,
   lastActivityByPerson,
   nextTaskByPerson,
+  sort,
+  onSort,
 }: {
   people: PersonRow[];
   visibleColumns: ColumnKey[];
@@ -397,6 +519,8 @@ function ListView({
   onComposeEmail: (person: PersonRow) => void;
   lastActivityByPerson: Map<string, Activity>;
   nextTaskByPerson: Map<string, Task>;
+  sort: { key: ColumnKey; dir: SortDir } | null;
+  onSort: (key: ColumnKey) => void;
 }) {
   const cols = useMemo(() => {
     const standard = STANDARD_COLUMNS.filter((c) => visibleColumns.includes(c.key)).map((c) => ({
@@ -435,12 +559,25 @@ function ListView({
           <UserCircle size={13} strokeWidth={1.75} />
           Name
         </span>
-        {cols.map((c) => (
-          <span key={c.key} className="flex items-center gap-1.5 pl-1 truncate">
-            <c.icon size={13} strokeWidth={1.75} />
-            {c.label}
-          </span>
-        ))}
+        {cols.map((c) => {
+          const active = sort?.key === c.key;
+          return (
+            <button
+              key={c.key}
+              onClick={() => onSort(c.key)}
+              className="flex items-center gap-1.5 pl-1 truncate text-left hover:text-foreground transition-colors"
+            >
+              <c.icon size={13} strokeWidth={1.75} />
+              <span className="truncate">{c.label}</span>
+              {active &&
+                (sort!.dir === "asc" ? (
+                  <ChevronUp size={12} strokeWidth={2} className="shrink-0" />
+                ) : (
+                  <ChevronDown size={12} strokeWidth={2} className="shrink-0" />
+                ))}
+            </button>
+          );
+        })}
       </div>
       <div className="divide-y divide-border">
         {people.map((p) => {
@@ -489,6 +626,13 @@ function ListView({
                         {cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson)}
                       </span>
                     )
+                  ) : col.key === "company" && p.company ? (
+                    <Link
+                      href={`/companies/${p.company.id}`}
+                      className="inline-block px-2 py-0.5 rounded-md border border-border bg-muted text-foreground truncate max-w-full hover:bg-accent hover:text-white hover:border-accent transition-colors"
+                    >
+                      {p.company.name || "Untitled"}
+                    </Link>
                   ) : (
                     cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson) || "—"
                   )}

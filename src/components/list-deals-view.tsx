@@ -75,8 +75,30 @@ export function ListDealsView({ opportunities }: { opportunities: OpportunityRow
                 </span>
               </span>
               <span className="text-[13px] text-subtle truncate pl-1 pr-2">{owner || "—"}</span>
-              <span className="text-[13px] text-subtle truncate pl-1 pr-2">{o.company?.name || "—"}</span>
-              <span className="text-[13px] text-subtle truncate pl-1 pr-2">{contactName(o.contact) || "—"}</span>
+              <span className="text-[13px] truncate pl-1 pr-2">
+                {o.company ? (
+                  <Link
+                    href={`/companies/${o.company.id}`}
+                    className="inline-block px-2 py-0.5 rounded-md border border-border bg-muted text-foreground truncate max-w-full hover:bg-accent hover:text-white hover:border-accent transition-colors"
+                  >
+                    {o.company.name || "Untitled"}
+                  </Link>
+                ) : (
+                  <span className="text-subtle">—</span>
+                )}
+              </span>
+              <span className="text-[13px] truncate pl-1 pr-2">
+                {o.contact ? (
+                  <Link
+                    href={`/contacts/${o.contact.id}`}
+                    className="inline-block px-2 py-0.5 rounded-md border border-border bg-muted text-foreground truncate max-w-full hover:bg-accent hover:text-white hover:border-accent transition-colors"
+                  >
+                    {contactName(o.contact) || "Untitled"}
+                  </Link>
+                ) : (
+                  <span className="text-subtle">—</span>
+                )}
+              </span>
               <span className="text-[13px] text-subtle truncate pl-1 pr-2">{formatCloseDate(o.closeDate)}</span>
             </div>
           );

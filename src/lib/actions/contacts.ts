@@ -145,6 +145,35 @@ export async function setPersonOwner(personId: string, ownerId: string | null) {
   revalidatePath(`/contacts/${personId}`);
 }
 
+export async function setPersonOwners(personIds: string[], ownerId: string | null) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Not authenticated");
+
+  const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
+  const newValue = next?.name ?? next?.email ?? "";
+
+  const current = await db.person.findMany({ where: { id: { in: personIds } }, include: { owner: true } });
+
+  for (const person of current) {
+    const oldValue = person.owner?.name ?? person.owner?.email ?? "";
+    if (oldValue === newValue) continue;
+
+    await db.person.update({ where: { id: person.id }, data: { ownerId } });
+    await db.activity.create({
+      data: {
+        entityType: "person",
+        entityId: person.id,
+        field: "Owner",
+        oldValue: oldValue || null,
+        newValue: newValue || null,
+        actorId: session.user.id,
+      },
+    });
+  }
+
+  revalidatePath("/contacts");
+}
+
 export async function setPersonCompany(personId: string, company: { id: string } | { name: string } | null) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Not authenticated");
