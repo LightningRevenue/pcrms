@@ -3,15 +3,19 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { PipelineStage } from "@prisma/client";
-import { Mail, MoreHorizontal, Handshake, GitBranch, Trash2 } from "lucide-react";
+import type { Opportunity, PipelineStage } from "@prisma/client";
+import { Mail, MoreHorizontal, Handshake, GitBranch, CheckSquare, StickyNote, Trash2 } from "lucide-react";
 import { ConvertToOpportunityPanel, type NewOpportunityDraft } from "@/components/convert-to-opportunity-panel";
 import { AddToSequencePanel } from "@/components/add-to-sequence-panel";
 import { FavoriteButton } from "@/components/favorite-button";
 import { EmailComposer, type ComposerDraft, type MailboxOption } from "@/components/email-composer";
 import { CallButton } from "@/components/call-button";
+import { CreateTaskPanel, type NewTaskDraft } from "@/components/create-task-panel";
+import { CreateNotePanel } from "@/components/create-note-panel";
 import { convertContactToOpportunity } from "@/lib/actions/opportunities";
 import { deleteContacts } from "@/lib/actions/contacts";
+import { createTask } from "@/lib/actions/tasks";
+import { createNote } from "@/lib/actions/notes";
 
 export function ContactHeaderBar({
   contactId,
@@ -22,6 +26,7 @@ export function ContactHeaderBar({
   personEmail,
   personPhone,
   stages,
+  opportunities,
   isFavorited,
   mailboxes,
 }: {
@@ -33,6 +38,7 @@ export function ContactHeaderBar({
   personEmail: string | null;
   personPhone: string | null;
   stages: PipelineStage[];
+  opportunities?: Opportunity[];
   isFavorited: boolean;
   mailboxes: MailboxOption[];
 }) {
@@ -40,6 +46,8 @@ export function ContactHeaderBar({
   const [converting, setConverting] = useState(false);
   const [addingToSequence, setAddingToSequence] = useState(false);
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [creatingNote, setCreatingNote] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, startDelete] = useTransition();
   const [pending, startTransition] = useTransition();
@@ -57,6 +65,21 @@ export function ContactHeaderBar({
 
   function openCompose() {
     setDraft({ personId: contactId, to: personEmail ? [personEmail] : [], contactFirstName: name.split(" ")[0] });
+  }
+
+  function handleCreateTask(task: NewTaskDraft) {
+    createTask({
+      personId: contactId,
+      title: task.title,
+      description: task.description,
+      type: task.type,
+      due: task.due,
+      priority: task.priority,
+    });
+  }
+
+  function handleCreateNote(body: string, opportunityIds: string[]) {
+    createNote(contactId, body, opportunityIds);
   }
 
   function handleDelete() {
@@ -96,6 +119,20 @@ export function ContactHeaderBar({
           Send Email
         </button>
         <CallButton personId={contactId} phone={personPhone} name={name} />
+        <button
+          onClick={() => setCreatingTask(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+        >
+          <CheckSquare size={14} strokeWidth={1.75} />
+          Create Task
+        </button>
+        <button
+          onClick={() => setCreatingNote(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+        >
+          <StickyNote size={14} strokeWidth={1.75} />
+          Create Note
+        </button>
         <button
           onClick={() => setConverting(true)}
           disabled={pending}
@@ -158,6 +195,23 @@ export function ContactHeaderBar({
       )}
 
       {draft && <EmailComposer draft={draft} mailboxes={mailboxes} onClose={() => setDraft(null)} />}
+
+      {creatingTask && (
+        <CreateTaskPanel
+          relatedTo={name}
+          onClose={() => setCreatingTask(false)}
+          onCreate={handleCreateTask}
+        />
+      )}
+
+      {creatingNote && (
+        <CreateNotePanel
+          relatedTo={name}
+          opportunities={opportunities}
+          onClose={() => setCreatingNote(false)}
+          onSave={handleCreateNote}
+        />
+      )}
     </div>
   );
 }

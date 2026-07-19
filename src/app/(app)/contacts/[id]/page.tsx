@@ -81,6 +81,7 @@ export default async function ContactDetailPage({
         personEmail={contact.email}
         personPhone={contact.phone}
         stages={stages}
+        opportunities={openOpportunities}
         isFavorited={favorited}
         mailboxes={mailboxes}
       />
