@@ -47,7 +47,11 @@ export default async function ListDetailPage({
     ]);
     const [lastActivity, nextTasks] = await Promise.all([
       db.activity.findMany({
-        where: { entityType: "person", entityId: { in: people.map((p) => p.id) } },
+        where: {
+          entityType: "person",
+          entityId: { in: people.map((p) => p.id) },
+          kind: { not: "created" },
+        },
         orderBy: { createdAt: "desc" },
         distinct: ["entityId"],
       }),
