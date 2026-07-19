@@ -5,9 +5,9 @@ import type { OpportunityRow } from "@/components/opportunities-view";
 import { ArrowUpRight, DollarSign, Target, Building2, User as UserIcon, CalendarDays } from "lucide-react";
 
 const OUTCOME_BADGE: Record<string, string> = {
-  open: "bg-blue-500/15 text-blue-300",
-  won: "bg-emerald-500/15 text-emerald-300",
-  lost: "bg-rose-500/15 text-rose-300",
+  open: "bg-blue-500 text-white",
+  won: "bg-emerald-500 text-white",
+  lost: "bg-rose-500 text-white",
 };
 
 function formatValue(value: number) {

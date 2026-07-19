@@ -40,7 +40,7 @@ export function MagicLinkForm() {
       <button
         type="submit"
         disabled={status === "sending"}
-        className="w-full py-2.5 rounded-lg border border-border text-[13px] font-medium hover:bg-black/5 transition-colors disabled:opacity-50"
+        className="w-full py-2.5 rounded-lg border border-border text-[13px] font-medium hover:bg-muted transition-colors disabled:opacity-50"
       >
         {status === "sending" ? "Sending…" : "Send magic link"}
       </button>

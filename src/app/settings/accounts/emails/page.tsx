@@ -31,8 +31,8 @@ export default async function EmailsPage() {
                   </td>
                   <td className="py-3">
                     {account.gmailConnected ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 text-[11px]">
-                        <span className="size-1.5 rounded-full bg-emerald-400" />
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[11px]">
+                        <span className="size-1.5 rounded-full bg-white" />
                         Synced
                       </span>
                     ) : (

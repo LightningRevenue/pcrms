@@ -9,7 +9,7 @@ const STATUS_DOT: Record<ContactStatus, string> = {
   Lead: "bg-amber-400",
   Active: "bg-blue-400",
   Customer: "bg-emerald-400",
-  Churned: "bg-zinc-300",
+  Churned: "bg-subtle",
 };
 
 function initials(name: string) {

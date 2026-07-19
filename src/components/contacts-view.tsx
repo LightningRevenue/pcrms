@@ -34,12 +34,12 @@ export type PersonRow = Person & { company: Company | null; createdBy: User | nu
 export type PersonCustomField = { id: string; key: string; label: string };
 
 const AVATAR_COLORS = [
-  "bg-rose-500/20 text-rose-300",
-  "bg-blue-500/20 text-blue-300",
-  "bg-emerald-500/20 text-emerald-300",
-  "bg-amber-500/20 text-amber-300",
-  "bg-violet-500/20 text-violet-300",
-  "bg-cyan-500/20 text-cyan-300",
+  "bg-rose-500 text-white",
+  "bg-blue-500 text-white",
+  "bg-emerald-500 text-white",
+  "bg-amber-500 text-white",
+  "bg-violet-500 text-white",
+  "bg-cyan-500 text-white",
 ];
 
 function fullName(p: Pick<Person, "firstName" | "lastName">) {

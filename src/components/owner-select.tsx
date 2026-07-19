@@ -15,7 +15,7 @@ export function OwnerSelect({
     <select
       value={ownerId ?? ""}
       onChange={(e) => onChange(e.target.value || null)}
-      className="flex-1 min-w-0 bg-transparent text-[13px] outline-none cursor-pointer [color-scheme:dark]"
+      className="flex-1 min-w-0 bg-transparent text-[13px] outline-none cursor-pointer"
     >
       <option value="" className="bg-background text-foreground">
         Unassigned

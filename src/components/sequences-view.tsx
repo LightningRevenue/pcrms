@@ -114,7 +114,7 @@ export function SequencesView({ sequences: initial }: { sequences: SequenceRow[]
                   <span className="text-[13px] truncate">{s.name}</span>
                   <span
                     className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
-                      s.active ? "bg-emerald-500/15 text-emerald-300" : "bg-muted text-subtle"
+                      s.active ? "bg-emerald-500 text-white" : "bg-muted text-subtle"
                     }`}
                   >
                     {s.active ? "Active" : "Paused"}

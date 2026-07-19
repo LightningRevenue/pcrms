@@ -7,7 +7,17 @@
   --muted: #232323;
   --border: #2b2b2b;
   --subtle: #8a8a8e;
-  --accent: #4a63e7;
+  --accent: #4d7c5f;
+}
+
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --surface: #f7f7f5;
+  --foreground: #1c1c1a;
+  --muted: #eeeeec;
+  --border: #e0e0dc;
+  --subtle: #6b6b68;
+  --accent: #4d7c5f;
 }
 
 @theme inline {
@@ -29,6 +39,10 @@ body {
 
 html {
   color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -53,4 +67,19 @@ html {
 
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--subtle);
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-step-in {
+  animation: step-in 220ms ease-out;
 }

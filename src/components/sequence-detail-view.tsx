@@ -93,7 +93,7 @@ export function SequenceDetailView({
             onClick={() => startTransition(() => toggleSequenceActive(sequence.id))}
             disabled={pending}
             className={`text-[12px] px-2.5 py-1 rounded-full font-medium transition-colors ${
-              sequence.active ? "bg-emerald-500/15 text-emerald-300" : "bg-muted text-subtle"
+              sequence.active ? "bg-emerald-500 text-white" : "bg-muted text-subtle"
             }`}
           >
             {sequence.active ? "Active" : "Paused"}
@@ -186,9 +186,9 @@ export function SequenceDetailView({
                   <span
                     className={`text-[11px] px-1.5 py-0.5 rounded-full shrink-0 ${
                       e.status === "active"
-                        ? "bg-blue-500/15 text-blue-300"
+                        ? "bg-blue-500 text-white"
                         : e.status === "completed"
-                          ? "bg-emerald-500/15 text-emerald-300"
+                          ? "bg-emerald-500 text-white"
                           : "bg-muted text-subtle"
                     }`}
                   >

@@ -104,7 +104,7 @@ export function SequenceStepForm({
             <select
               value={templateId}
               onChange={(e) => setTemplateId(e.target.value)}
-              className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent [color-scheme:dark]"
+              className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
             >
               <option value="" className="bg-background text-foreground">
                 Write custom email instead
@@ -169,7 +169,7 @@ export function SequenceStepForm({
               <select
                 value={taskType}
                 onChange={(e) => setTaskType(e.target.value)}
-                className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent [color-scheme:dark]"
+                className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
               >
                 {TASK_TYPES.map((t) => (
                   <option key={t.key} value={t.key} className="bg-background text-foreground">
@@ -183,7 +183,7 @@ export function SequenceStepForm({
               <select
                 value={taskPriority}
                 onChange={(e) => setTaskPriority(e.target.value)}
-                className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent [color-scheme:dark]"
+                className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
               >
                 {["low", "medium", "high"].map((p) => (
                   <option key={p} value={p} className="bg-background text-foreground capitalize">

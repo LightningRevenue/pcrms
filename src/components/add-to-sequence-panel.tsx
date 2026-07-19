@@ -78,7 +78,7 @@ export function AddToSequencePanel({
                 <select
                   value={sequenceId}
                   onChange={(e) => setSequenceId(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent [color-scheme:dark]"
+                  className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
                 >
                   {sequences.map((s) => (
                     <option key={s.id} value={s.id} className="bg-background text-foreground">

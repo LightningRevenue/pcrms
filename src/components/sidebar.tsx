@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -29,6 +29,8 @@ import {
   Megaphone,
   MailCheck,
   List,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { WorkspaceSearch } from "@/components/workspace-search";
 import { NotificationBell } from "@/components/notification-bell";
@@ -50,17 +52,6 @@ const ICONS: Record<string, typeof Building2> = {
   sequences: GitBranch,
 };
 
-const COLORS: Record<string, string> = {
-  inbox: "text-sky-400",
-  companies: "text-blue-400",
-  contacts: "text-violet-400",
-  deals: "text-rose-400",
-  calendar: "text-orange-400",
-  tasks: "text-emerald-400",
-  notes: "text-slate-400",
-  dashboards: "text-cyan-400",
-};
-
 const FAVORITE_ICONS: Record<string, typeof Building2> = {
   company: Building2,
   person: PersonIcon,
@@ -68,9 +59,9 @@ const FAVORITE_ICONS: Record<string, typeof Building2> = {
 };
 
 const MARKETING_NAV = [
-  { key: "marketing-campaigns", href: "/marketing/campaigns", label: "Campaigns", icon: Megaphone, color: "text-pink-400" },
-  { key: "marketing-dashboard", href: "/marketing/dashboard", label: "Dashboard", icon: LayoutGrid, color: "text-cyan-400" },
-  { key: "marketing-inbox-placements", href: "/marketing/inbox-placements", label: "Inbox Placements", icon: MailCheck, color: "text-emerald-400" },
+  { key: "marketing-campaigns", href: "/marketing/campaigns", label: "Campaigns", icon: Megaphone },
+  { key: "marketing-dashboard", href: "/marketing/dashboard", label: "Dashboard", icon: LayoutGrid },
+  { key: "marketing-inbox-placements", href: "/marketing/inbox-placements", label: "Inbox Placements", icon: MailCheck },
 ];
 
 function useFavorites() {
@@ -126,14 +117,12 @@ function NavLink({
   href,
   label,
   icon: Icon,
-  color,
   active,
   collapsed,
 }: {
   href: string;
   label: string;
   icon: typeof Home;
-  color?: string;
   active: boolean;
   collapsed: boolean;
 }) {
@@ -141,19 +130,119 @@ function NavLink({
     <Link
       href={href}
       title={collapsed ? label : undefined}
-      className={`flex items-center gap-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
-        collapsed ? "justify-center px-0" : "px-2.5"
-      } ${active ? "bg-muted text-foreground font-medium" : "text-subtle hover:bg-muted hover:text-foreground"}`}
+      className={`flex items-center gap-2.5 py-2 rounded-lg text-[13.5px] transition-colors ${
+        collapsed ? "justify-center px-0" : "px-3"
+      } ${
+        active
+          ? "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-accent font-bold"
+          : "text-subtle hover:bg-muted hover:text-foreground font-medium"
+      }`}
     >
-      <Icon size={16} strokeWidth={1.75} className={`shrink-0 ${color ?? ""}`} />
+      <Icon size={16} strokeWidth={1.5} className="shrink-0" />
       {!collapsed && <span className="truncate">{label}</span>}
     </Link>
   );
 }
 
+const THEME_KEY = "theme";
+
+function useTheme() {
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const stored = localStorage.getItem(THEME_KEY);
+    setTheme(stored === "light" ? "light" : "dark");
+  }, []);
+
+  function toggle() {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    localStorage.setItem(THEME_KEY, next);
+    if (next === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+    }
+  }
+
+  return { theme, toggle };
+}
+
+function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
+  const { data: session } = useSession();
+  const { theme, toggle } = useTheme();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={collapsed ? "Workspace menu" : undefined}
+        className={`flex items-center gap-2 min-w-0 py-1 rounded-md hover:bg-muted transition-colors ${
+          collapsed ? "justify-center px-0" : "px-1"
+        }`}
+      >
+        <span className="size-6 shrink-0 rounded-xl bg-accent flex items-center justify-center text-[12px] font-extrabold text-white">
+          L
+        </span>
+        {!collapsed && (
+          <>
+            <span className="text-[14px] font-extrabold truncate">LightningRev...</span>
+            <ChevronDown size={14} strokeWidth={2} className="text-subtle shrink-0" />
+          </>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 w-48 rounded-lg border border-border bg-surface shadow-lg py-1 z-10">
+          {session?.user && (
+            <div className="px-3 py-2 border-b border-border">
+              <p className="text-[13px] font-bold truncate">{session.user.name ?? session.user.email}</p>
+              {session.user.name && (
+                <p className="text-[12px] text-subtle truncate">{session.user.email}</p>
+              )}
+            </div>
+          )}
+          <Link
+            href="/settings"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <Settings size={15} strokeWidth={1.5} />
+            Settings
+          </Link>
+          <button
+            onClick={toggle}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors"
+          >
+            {theme === "light" ? <Moon size={15} strokeWidth={1.5} /> : <Sun size={15} strokeWidth={1.5} />}
+            {theme === "light" ? "Dark mode" : "Light mode"}
+          </button>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <LogOut size={15} strokeWidth={1.5} />
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const { main: NAV, automation: AUTOMATION_NAV } = useOrderedNav();
   const favorites = useFavorites();
   const [collapsed, setCollapsed] = useState(false);
@@ -164,16 +253,8 @@ export function Sidebar() {
         collapsed ? "w-14" : "w-60"
       }`}
     >
-      <div className={`h-12 flex items-center shrink-0 ${collapsed ? "justify-center px-0" : "justify-between px-3"}`}>
-        {!collapsed && (
-          <button className="flex items-center gap-1.5 min-w-0 px-1 py-1 rounded-md hover:bg-muted transition-colors">
-            <span className="size-5 shrink-0 rounded bg-accent flex items-center justify-center text-[11px] font-semibold text-white">
-              L
-            </span>
-            <span className="text-[13px] font-medium truncate">LightningRev...</span>
-            <ChevronDown size={14} strokeWidth={1.75} className="text-subtle shrink-0" />
-          </button>
-        )}
+      <div className={`h-14 flex items-center shrink-0 ${collapsed ? "justify-center px-0" : "justify-between px-3"}`}>
+        <WorkspaceMenu collapsed={collapsed} />
         <div className={`flex items-center gap-0.5 shrink-0 ${collapsed ? "flex-col gap-1.5" : ""}`}>
           {!collapsed && <NotificationBell />}
           <button
@@ -203,7 +284,7 @@ export function Sidebar() {
       {favorites.length > 0 && (
         <div className={collapsed ? "px-2 pt-1" : "px-2 pt-1"}>
           {!collapsed && (
-            <p className="px-1 pb-1 text-[11px] font-medium text-subtle uppercase tracking-wide">
+            <p className="px-1 pb-1 text-[10.5px] font-bold text-subtle uppercase tracking-wider">
               Favorites
             </p>
           )}
@@ -216,11 +297,15 @@ export function Sidebar() {
                   <Link
                     href={f.href}
                     title={collapsed ? f.name : undefined}
-                    className={`flex items-center gap-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
-                      collapsed ? "justify-center px-0" : "px-2.5"
-                    } ${active ? "bg-muted text-foreground font-medium" : "text-subtle hover:bg-muted hover:text-foreground"}`}
+                    className={`flex items-center gap-2.5 py-2 rounded-lg text-[13.5px] transition-colors ${
+                      collapsed ? "justify-center px-0" : "px-3"
+                    } ${
+                      active
+                        ? "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-accent font-bold"
+                        : "text-subtle hover:bg-muted hover:text-foreground font-medium"
+                    }`}
                   >
-                    <Icon size={16} strokeWidth={1.75} className="shrink-0 text-rose-400" />
+                    <Icon size={16} strokeWidth={1.5} className="shrink-0" />
                     {!collapsed && <span className="flex-1 min-w-0 truncate">{f.name}</span>}
                   </Link>
                   {!collapsed && (
@@ -242,7 +327,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         {!collapsed && (
           <div className="px-3 pb-1 pt-2">
-            <span className="text-[11px] font-medium text-subtle uppercase tracking-wide">
+            <span className="text-[10.5px] font-bold text-subtle uppercase tracking-wider">
               Workspace
             </span>
           </div>
@@ -252,7 +337,6 @@ export function Sidebar() {
             href="/"
             label="Home"
             icon={Home}
-            color="text-subtle"
             active={pathname === "/"}
             collapsed={collapsed}
           />
@@ -263,7 +347,6 @@ export function Sidebar() {
               href={href}
               label={label}
               icon={ICONS[key]}
-              color={COLORS[key]}
               active={pathname === href || pathname.startsWith(`${href}/`)}
               collapsed={collapsed}
             />
@@ -274,7 +357,7 @@ export function Sidebar() {
           <>
             {!collapsed && (
               <div className="px-3 pb-1 pt-3">
-                <span className="text-[11px] font-medium text-subtle uppercase tracking-wide">
+                <span className="text-[10.5px] font-bold text-subtle uppercase tracking-wider">
                   Automation
                 </span>
               </div>
@@ -286,7 +369,6 @@ export function Sidebar() {
                   href={href}
                   label={label}
                   icon={ICONS[key]}
-                  color="text-amber-400"
                   active={pathname === href || pathname.startsWith(`${href}/`)}
                   collapsed={collapsed}
                 />
@@ -297,19 +379,18 @@ export function Sidebar() {
 
         {!collapsed && (
           <div className="px-3 pb-1 pt-3">
-            <span className="text-[11px] font-medium text-subtle uppercase tracking-wide">
+            <span className="text-[10.5px] font-bold text-subtle uppercase tracking-wider">
               Marketing
             </span>
           </div>
         )}
         <nav className={`space-y-0.5 ${collapsed ? "px-2 pt-1.5" : "px-2"}`}>
-          {MARKETING_NAV.map(({ key, href, label, icon, color }) => (
+          {MARKETING_NAV.map(({ key, href, label, icon }) => (
             <NavLink
               key={key}
               href={href}
               label={label}
               icon={icon}
-              color={color}
               active={pathname === href || pathname.startsWith(`${href}/`)}
               collapsed={collapsed}
             />
@@ -318,52 +399,11 @@ export function Sidebar() {
             href="/lists"
             label="Lists"
             icon={List}
-            color="text-subtle"
             active={pathname === "/lists" || pathname.startsWith("/lists/")}
             collapsed={collapsed}
           />
         </nav>
       </div>
-
-      <div className={collapsed ? "px-2 pb-1" : "px-2 pb-1"}>
-        <NavLink
-          href="/settings"
-          label="Settings"
-          icon={Settings}
-          color="text-subtle"
-          active={pathname === "/settings" || pathname.startsWith("/settings/")}
-          collapsed={collapsed}
-        />
-      </div>
-
-      {session?.user && (
-        <div
-          className={`py-2.5 border-t border-border flex items-center gap-2 shrink-0 ${
-            collapsed ? "px-2 justify-center" : "px-3"
-          }`}
-        >
-          <span
-            title={collapsed ? (session.user.name ?? session.user.email ?? undefined) : undefined}
-            className="size-6 shrink-0 rounded-full bg-accent flex items-center justify-center text-[11px] font-semibold text-white"
-          >
-            {session.user.name?.[0] ?? session.user.email?.[0] ?? "?"}
-          </span>
-          {!collapsed && (
-            <>
-              <span className="text-[13px] truncate flex-1 min-w-0">
-                {session.user.name ?? session.user.email}
-              </span>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                className="p-1.5 rounded-md text-subtle hover:bg-muted hover:text-foreground transition-colors"
-                title="Sign out"
-              >
-                <LogOut size={15} strokeWidth={1.75} />
-              </button>
-            </>
-          )}
-        </div>
-      )}
     </aside>
   );
 }

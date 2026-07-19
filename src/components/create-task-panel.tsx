@@ -144,7 +144,7 @@ export function CreateTaskPanel({
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                className="flex-1 min-w-0 text-[13px] outline-none bg-transparent [color-scheme:dark]"
+                className="flex-1 min-w-0 text-[13px] outline-none bg-transparent"
               >
                 {PRIORITIES.map((p) => (
                   <option key={p.key} value={p.key} className="bg-background text-foreground">

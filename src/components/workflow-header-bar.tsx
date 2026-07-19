@@ -47,7 +47,7 @@ export function WorkflowHeaderBar({
           style={{ width: `${Math.max(value.length, 4)}ch` }}
         />
         {!active && (
-          <span className="ml-2 shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-300">
+          <span className="ml-2 shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500 text-white">
             Draft
           </span>
         )}

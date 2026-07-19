@@ -19,9 +19,9 @@ const OUTCOME_LABELS: Record<StageOutcome, string> = {
 };
 
 const OUTCOME_BADGE: Record<StageOutcome, string> = {
-  open: "bg-blue-500/15 text-blue-300",
-  won: "bg-emerald-500/15 text-emerald-300",
-  lost: "bg-rose-500/15 text-rose-300",
+  open: "bg-blue-500 text-white",
+  won: "bg-emerald-500 text-white",
+  lost: "bg-rose-500 text-white",
 };
 
 export function PipelineStagesManager({ stages: initial }: { stages: PipelineStage[] }) {
@@ -156,7 +156,7 @@ function StageRow({
       <select
         value={stage.outcome}
         onChange={(e) => onUpdate({ outcome: e.target.value as StageOutcome })}
-        className={`text-[12px] font-medium rounded-full px-2 py-0.5 outline-none cursor-pointer [color-scheme:dark] ${OUTCOME_BADGE[stage.outcome as StageOutcome] ?? "bg-muted"}`}
+        className={`text-[12px] font-medium rounded-full px-2 py-0.5 outline-none cursor-pointer ${OUTCOME_BADGE[stage.outcome as StageOutcome] ?? "bg-muted"}`}
       >
         {(Object.entries(OUTCOME_LABELS) as [StageOutcome, string][]).map(([value, text]) => (
           <option key={value} value={value} className="bg-background text-foreground">
@@ -204,7 +204,7 @@ function NewStageRow({
       <select
         value={outcome}
         onChange={(e) => setOutcome(e.target.value as StageOutcome)}
-        className="bg-transparent outline-none border-b border-border text-subtle [color-scheme:dark]"
+        className="bg-transparent outline-none border-b border-border text-subtle"
       >
         {(Object.entries(OUTCOME_LABELS) as [StageOutcome, string][]).map(([value, text]) => (
           <option key={value} value={value} className="bg-background text-foreground">
@@ -252,7 +252,7 @@ function RemapDialog({
             <select
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              className="mt-1 w-full text-[13px] outline-none bg-transparent border-b border-border focus:border-accent transition-colors py-1.5 [color-scheme:dark]"
+              className="mt-1 w-full text-[13px] outline-none bg-transparent border-b border-border focus:border-accent transition-colors py-1.5"
             >
               {otherStages.map((s) => (
                 <option key={s.id} value={s.label} className="bg-background text-foreground">

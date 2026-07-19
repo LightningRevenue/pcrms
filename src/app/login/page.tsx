@@ -20,7 +20,7 @@ export default async function LoginPage() {
         >
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-2 border border-border rounded-lg py-2.5 text-[13px] font-medium hover:bg-black/5 transition-colors"
+            className="w-full flex items-center justify-center gap-2 border border-border rounded-lg py-2.5 text-[13px] font-medium hover:bg-muted transition-colors"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.57-5.17 3.57-8.82Z" />

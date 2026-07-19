@@ -90,7 +90,7 @@ export function ConvertToOpportunityPanel({
               <select
                 value={stage}
                 onChange={(e) => setStage(e.target.value as OpportunityStage)}
-                className="mt-1 w-full text-[13px] outline-none bg-transparent border-b border-border focus:border-accent transition-colors py-1 [color-scheme:dark]"
+                className="mt-1 w-full text-[13px] outline-none bg-transparent border-b border-border focus:border-accent transition-colors py-1"
               >
                 {stages.map((s) => (
                   <option key={s.id} value={s.label} className="bg-background text-foreground">

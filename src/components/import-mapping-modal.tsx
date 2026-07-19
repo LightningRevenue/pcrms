@@ -79,7 +79,7 @@ export function ImportMappingModal({
                 <select
                   value={mapping[header] ?? ""}
                   onChange={(e) => setTarget(header, e.target.value)}
-                  className="w-44 shrink-0 text-[13px] outline-none bg-transparent border-b border-border py-0.5 [color-scheme:dark]"
+                  className="w-44 shrink-0 text-[13px] outline-none bg-transparent border-b border-border py-0.5"
                 >
                   <option value="" className="bg-background text-foreground">
                     Don&apos;t import

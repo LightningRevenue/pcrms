@@ -118,7 +118,7 @@ function NewFieldRow({ objectType, onDone }: { objectType: ObjectType; onDone: (
       <select
         value={type}
         onChange={(e) => setType(e.target.value as CustomFieldType)}
-        className="bg-transparent outline-none border-b border-border text-subtle [color-scheme:dark]"
+        className="bg-transparent outline-none border-b border-border text-subtle"
       >
         {Object.entries(TYPE_LABELS).map(([value, text]) => (
           <option key={value} value={value} className="bg-background text-foreground">

@@ -34,7 +34,7 @@ export function CompanyEmailsTab({ emails }: { emails: CompanyEmail[] }) {
               <div className="flex items-center gap-2">
                 <span
                   className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
-                    email.direction === "sent" ? "bg-blue-950 text-blue-400" : "bg-emerald-950 text-emerald-400"
+                    email.direction === "sent" ? "bg-blue-500 text-white" : "bg-emerald-500 text-white"
                   }`}
                 >
                   {email.direction === "sent" ? "Sent" : "Received"}

@@ -70,7 +70,7 @@ export default function SettingsPage() {
       <section className="mt-8 pt-6 border-t border-border">
         <h2 className="text-[13px] font-semibold text-red-400">Danger zone</h2>
         <p className="text-[12px] text-subtle mt-1">Delete account and all the associated data</p>
-        <button className="mt-3 px-2.5 py-1.5 rounded-md border border-red-900/50 text-[13px] text-red-400 hover:bg-red-950/30 transition-colors">
+        <button className="mt-3 px-2.5 py-1.5 rounded-md border border-red-500/50 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors">
           Delete account
         </button>
       </section>

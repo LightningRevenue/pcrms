@@ -103,7 +103,7 @@ function ListView({ workflows }: { workflows: WorkflowRow[] }) {
               <span className="pl-1">
                 <span
                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] ${
-                    w.active ? "bg-emerald-500/15 text-emerald-300" : "bg-muted text-subtle"
+                    w.active ? "bg-emerald-500 text-white" : "bg-muted text-subtle"
                   }`}
                 >
                   {w.active ? "Active" : "Draft"}

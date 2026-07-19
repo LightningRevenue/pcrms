@@ -33,9 +33,9 @@ function relativeTime(date: Date) {
 }
 
 const OUTCOME_BADGE: Record<string, string> = {
-  open: "bg-blue-500/15 text-blue-300",
-  won: "bg-emerald-500/15 text-emerald-300",
-  lost: "bg-rose-500/15 text-rose-300",
+  open: "bg-blue-500 text-white",
+  won: "bg-emerald-500 text-white",
+  lost: "bg-rose-500 text-white",
 };
 
 export function OpportunityDetailPanel({
@@ -84,7 +84,7 @@ export function OpportunityDetailPanel({
               <select
                 value={opportunity.stage}
                 onChange={(e) => onStageChange(e.target.value as OpportunityStage)}
-                className={`appearance-none cursor-pointer px-2 py-0.5 pr-5 rounded-full text-[12px] font-medium outline-none [color-scheme:dark] ${
+                className={`appearance-none cursor-pointer px-2 py-0.5 pr-5 rounded-full text-[12px] font-medium outline-none ${
                   currentStage ? OUTCOME_BADGE[currentStage.outcome] ?? "bg-muted" : "bg-muted"
                 }`}
               >
@@ -156,7 +156,7 @@ export function OpportunityDetailPanel({
 
 function Avatar({ name }: { name: string }) {
   return (
-    <div className="size-5 shrink-0 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px] font-medium">
+    <div className="size-5 shrink-0 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-medium">
       {initials(name) || "?"}
     </div>
   );

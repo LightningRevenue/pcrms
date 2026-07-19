@@ -42,7 +42,7 @@ export function EditableFieldRow({
             setDraft(e.target.value);
             commit(e.target.value);
           }}
-          className="flex-1 min-w-0 bg-transparent text-[13px] outline-none border-b border-border [color-scheme:dark]"
+          className="flex-1 min-w-0 bg-transparent text-[13px] outline-none border-b border-border"
         >
           <option value="" className="bg-background text-foreground">
             {placeholder || "Empty"}
