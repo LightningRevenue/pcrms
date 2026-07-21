@@ -1,4 +1,5 @@
 import { Check, X } from "lucide-react";
+import { BillingActions } from "@/components/billing-actions";
 
 type UsageEntry = { key: string; label: string; type: "count" | "monthly"; current: number; limit: number | null };
 type FeatureEntry = { key: string; label: string; allowed: boolean };
@@ -7,22 +8,29 @@ export function BillingView({
   planName,
   usage,
   features,
+  hasBillingAccount,
+  upgradePlans,
 }: {
   planName: string;
   usage: UsageEntry[];
   features: FeatureEntry[];
+  hasBillingAccount: boolean;
+  upgradePlans: { id: string; name: string }[];
 }) {
   const monthly = usage.filter((u) => u.type === "monthly");
   const counts = usage.filter((u) => u.type === "count");
 
   return (
     <div className="mt-6">
-      <div className="border border-border rounded-lg px-4 py-3 flex items-center justify-between">
-        <div>
-          <p className="text-[11px] font-medium text-subtle uppercase tracking-wide">Current plan</p>
-          <p className="text-[16px] font-medium mt-0.5">{planName}</p>
+      <div className="border border-border rounded-lg px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-medium text-subtle uppercase tracking-wide">Current plan</p>
+            <p className="text-[16px] font-medium mt-0.5">{planName}</p>
+          </div>
+          <span className="px-2.5 py-1 rounded-md text-[12px] bg-accent/10 text-accent">Active</span>
         </div>
-        <span className="px-2.5 py-1 rounded-md text-[12px] bg-accent/10 text-accent">Active</span>
+        <BillingActions hasBillingAccount={hasBillingAccount} upgradePlans={upgradePlans} />
       </div>
 
       {features.length > 0 && (

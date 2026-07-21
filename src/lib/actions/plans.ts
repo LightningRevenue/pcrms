@@ -83,3 +83,13 @@ export async function assignWorkspacePlan(workspaceId: string, planId: string) {
   revalidatePath("/admin");
   revalidatePath(`/admin/${workspaceId}`);
 }
+
+// Links this plan to a Stripe Price so it can be self-serve checked out from
+// /settings/billing — set to null to pull a plan back out of self-serve checkout without
+// deleting it (e.g. a plan an operator still assigns manually).
+export async function updatePlanStripePrice(planId: string, stripePriceId: string | null) {
+  await requirePlatformAdmin();
+  const trimmed = stripePriceId?.trim() || null;
+  await db.plan.update({ where: { id: planId }, data: { stripePriceId: trimmed } });
+  revalidatePath("/admin/plans");
+}

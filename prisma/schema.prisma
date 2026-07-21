@@ -88,6 +88,11 @@ model Plan {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  // Null for the free/default plan (nothing to check out for) or any plan not yet linked to
+  // a real Stripe Price — set from /admin/plans once the matching Price exists in Stripe.
+  // Checkout (src/lib/actions/checkout.ts) refuses to start for a plan with no price set.
+  stripePriceId String? @unique
+
   limits     PlanLimit[]
   workspaces Workspace[]
 }

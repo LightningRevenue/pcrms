@@ -8,6 +8,7 @@ import {
   setDefaultPlan,
   getPlanEditorRows,
   updatePlanLimit,
+  updatePlanStripePrice,
 } from "@/lib/actions/plans";
 import type { EntitlementKey } from "@/lib/entitlements";
 
@@ -15,6 +16,7 @@ type Plan = {
   id: string;
   name: string;
   isDefault: boolean;
+  stripePriceId: string | null;
   limits: { key: string; value: number | null }[];
   _count: { workspaces: number };
 };
@@ -143,6 +145,13 @@ export function PlanManager({ plans: initialPlans }: { plans: Plan[] }) {
             </div>
           </div>
 
+          <StripePriceEditor
+            key={`price-${active.id}`}
+            planId={active.id}
+            stripePriceId={active.stripePriceId}
+            onChange={(value) => setPlans((prev) => prev.map((p) => (p.id === active.id ? { ...p, stripePriceId: value } : p)))}
+          />
+
           <PlanLimitsEditor key={active.id} planId={active.id} />
         </div>
       )}
@@ -150,6 +159,39 @@ export function PlanManager({ plans: initialPlans }: { plans: Plan[] }) {
       {plans.length === 0 && !creating && (
         <p className="mt-6 text-[13px] text-subtle">No plans yet — create one to start assigning limits.</p>
       )}
+    </div>
+  );
+}
+
+function StripePriceEditor({
+  planId,
+  stripePriceId,
+  onChange,
+}: {
+  planId: string;
+  stripePriceId: string | null;
+  onChange: (value: string | null) => void;
+}) {
+  const [value, setValue] = useState(stripePriceId ?? "");
+  const [, startTransition] = useTransition();
+
+  function save() {
+    const trimmed = value.trim() || null;
+    onChange(trimmed);
+    startTransition(() => updatePlanStripePrice(planId, trimmed));
+  }
+
+  return (
+    <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+      <span className="text-[12px] text-subtle w-28 shrink-0">Stripe Price ID</span>
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        placeholder="price_... (leave blank to disable self-serve checkout)"
+        className="flex-1 min-w-0 px-2 py-1 rounded-md border border-border bg-background text-[13px] outline-none focus:border-accent transition-colors placeholder:text-subtle"
+      />
     </div>
   );
 }

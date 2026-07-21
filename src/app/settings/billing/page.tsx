@@ -10,7 +10,7 @@ export default async function BillingPage() {
     return <RestrictedSettingsPage crumbs={["Workspace", "Billing"]} requiredRole="owner" />;
   }
 
-  const { plan, usage, features } = await getBillingSnapshot();
+  const { plan, usage, features, hasBillingAccount, upgradePlans } = await getBillingSnapshot();
 
   return (
     <>
@@ -19,7 +19,13 @@ export default async function BillingPage() {
         <h1 className="text-xl font-medium">Billing</h1>
         <p className="text-[13px] text-subtle mt-2">Your plan and current usage.</p>
 
-        <BillingView planName={plan.name} usage={usage} features={features} />
+        <BillingView
+          planName={plan.name}
+          usage={usage}
+          features={features}
+          hasBillingAccount={hasBillingAccount}
+          upgradePlans={upgradePlans}
+        />
       </div>
     </>
   );

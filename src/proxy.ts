@@ -16,7 +16,9 @@ export const config = {
   // reaches the route handler if this guard applies to it.
   // api/twilio must stay excluded too — Twilio's servers call these webhooks directly
   // (TwiML request, recording-status callback) with no CRM session cookie either.
+  // api/stripe must stay excluded too — same reasoning, Stripe's servers POST the webhook
+  // directly with a signature header instead of a session cookie.
   // /invite/[token] must stay reachable logged-out — that's the whole point, an invited
   // person who doesn't have an account (or session) yet needs to open the link and sign in.
-  matcher: ["/((?!api/auth|api/track|api/twilio|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/auth|api/track|api/twilio|api/stripe|_next/static|_next/image|favicon.ico).*)"],
 };

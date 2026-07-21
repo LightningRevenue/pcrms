@@ -70,7 +70,16 @@ ENCRYPTION_KEY="<32-byte hex key, generate with: node -e \"console.log(require('
 AUTH_URL="https://your-domain.com"
 AUTH_GOOGLE_ID="<your Google OAuth client ID>"
 AUTH_GOOGLE_SECRET="<your NEW Google OAuth client secret>"
+STRIPE_SECRET_KEY="<sk_live_... or sk_test_... from https://dashboard.stripe.com/apikeys>"
+STRIPE_WEBHOOK_SECRET="<signing secret for the endpoint you add below>"
 ```
+
+For Stripe: after deploying, add a webhook endpoint in the Stripe dashboard pointing at
+`https://your-domain.com/api/stripe/webhook`, subscribed to `checkout.session.completed`,
+`customer.subscription.updated`, and `customer.subscription.deleted` — then paste that
+endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`. Without both Stripe env vars set,
+everything except billing/checkout still works — `getStripe()` only throws when a
+checkout/portal/webhook action actually runs.
 
 `ENCRYPTION_KEY` encrypts secrets at rest (mailbox passwords, Twilio auth tokens) —
 required before running migrations or starting the app/workers, or anything touching

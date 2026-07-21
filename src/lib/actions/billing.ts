@@ -10,10 +10,17 @@ import { ENTITLEMENTS, checkLimit } from "@/lib/entitlements";
 export async function getBillingSnapshot() {
   const { workspaceId } = await requireWorkspace();
 
-  const workspace = await db.workspace.findUniqueOrThrow({
-    where: { id: workspaceId },
-    select: { plan: { select: { id: true, name: true } } },
-  });
+  const [workspace, otherPlans] = await Promise.all([
+    db.workspace.findUniqueOrThrow({
+      where: { id: workspaceId },
+      select: { plan: { select: { id: true, name: true } }, stripeCustomerId: true },
+    }),
+    db.plan.findMany({
+      where: { stripePriceId: { not: null } },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
 
   const entries = await Promise.all(
     Object.values(ENTITLEMENTS).map(async (def) => ({
@@ -26,6 +33,8 @@ export async function getBillingSnapshot() {
 
   return {
     plan: workspace.plan,
+    hasBillingAccount: !!workspace.stripeCustomerId,
+    upgradePlans: otherPlans.filter((p) => p.id !== workspace.plan.id),
     usage: entries.filter((e): e is typeof e & { type: "count" | "monthly" } => e.type !== "feature"),
     features: entries.filter((e): e is typeof e & { type: "feature" } => e.type === "feature"),
   };
