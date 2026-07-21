@@ -1,7 +1,15 @@
 import { Lock } from "lucide-react";
 import { SettingsHeader } from "@/components/settings-header";
 
-export function RestrictedSettingsPage({ crumbs, requiredRole }: { crumbs: string[]; requiredRole: "owner" | "admin" }) {
+export function RestrictedSettingsPage({
+  crumbs,
+  requiredRole,
+  message,
+}: {
+  crumbs: string[];
+  requiredRole?: "owner" | "admin";
+  message?: string;
+}) {
   return (
     <>
       <SettingsHeader crumbs={crumbs} />
@@ -12,9 +20,10 @@ export function RestrictedSettingsPage({ crumbs, requiredRole }: { crumbs: strin
           </div>
           <h1 className="text-[15px] font-medium mt-4">This page is restricted</h1>
           <p className="text-[13px] text-subtle mt-1.5 max-w-sm">
-            {requiredRole === "owner"
-              ? "Only the workspace owner can access this. Contact your workspace owner if you need this changed."
-              : "Only workspace admins and the owner can access this. Contact your workspace owner if you need access."}
+            {message ??
+              (requiredRole === "owner"
+                ? "Only the workspace owner can access this. Contact your workspace owner if you need this changed."
+                : "Only workspace admins and the owner can access this. Contact your workspace owner if you need access.")}
           </p>
         </div>
       </div>

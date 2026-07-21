@@ -5,6 +5,8 @@ import { listNextTasksByPerson } from "@/lib/actions/tasks";
 import { listFieldDefinitions } from "@/lib/actions/custom-fields";
 import { ListDetailView } from "@/components/list-detail-view";
 import { requireWorkspace } from "@/lib/workspace";
+import { hasFeatureAccess } from "@/lib/entitlements";
+import { RestrictedAppPage } from "@/components/restricted-app-page";
 
 export default async function ListDetailPage({
   params,
@@ -13,6 +15,9 @@ export default async function ListDetailPage({
 }) {
   const { id } = await params;
   const { workspaceId } = await requireWorkspace();
+  if (!(await hasFeatureAccess(workspaceId, "lists_feature"))) {
+    return <RestrictedAppPage message="Lists aren't available on your current plan. Ask your workspace owner to upgrade." />;
+  }
   const list = await db.list.findUnique({ where: { id, workspaceId }, include: { items: true } });
   if (!list) notFound();
 

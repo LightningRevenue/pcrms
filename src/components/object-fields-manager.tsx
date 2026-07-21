@@ -21,10 +21,12 @@ export function ObjectFieldsManager({
   objectType,
   standardFields,
   customFields,
+  canCreate = true,
 }: {
   objectType: ObjectType;
   standardFields: string[];
   customFields: CustomFieldDefinition[];
+  canCreate?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
 
@@ -45,13 +47,19 @@ export function ObjectFieldsManager({
 
       <div className="flex items-center justify-between mt-6">
         <p className="text-[12px] font-medium text-subtle uppercase tracking-wide">Custom fields</p>
-        <button
-          onClick={() => setAdding(true)}
-          className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors"
-        >
-          <Plus size={14} strokeWidth={1.75} />
-          Add field
-        </button>
+        {canCreate ? (
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors"
+          >
+            <Plus size={14} strokeWidth={1.75} />
+            Add field
+          </button>
+        ) : (
+          <span className="text-[12px] text-subtle" title="Custom fields aren't available on your current plan">
+            Not available on your plan
+          </span>
+        )}
       </div>
 
       <div className="mt-2 border border-border rounded-md overflow-hidden">

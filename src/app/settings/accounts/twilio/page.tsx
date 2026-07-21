@@ -3,11 +3,20 @@ import { SettingsHeader } from "@/components/settings-header";
 import { TwilioSettingsForm } from "@/components/twilio-settings-form";
 import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { getTwilioAccount } from "@/lib/actions/twilio";
+import { hasFeatureAccess } from "@/lib/entitlements";
 
 export default async function TwilioSettingsPage() {
   const session = await auth();
   if (session?.user?.role !== "owner") {
     return <RestrictedSettingsPage crumbs={["Accounts", "Twilio"]} requiredRole="owner" />;
+  }
+  if (session.user.workspaceId && !(await hasFeatureAccess(session.user.workspaceId, "voice_calling_feature"))) {
+    return (
+      <RestrictedSettingsPage
+        crumbs={["Accounts", "Twilio"]}
+        message="Voice calling isn't available on your current plan. Upgrade to connect Twilio."
+      />
+    );
   }
 
   const account = await getTwilioAccount();

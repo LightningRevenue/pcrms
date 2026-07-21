@@ -243,3 +243,11 @@ export async function assertLimit(workspaceId: string, key: EntitlementKey): Pro
     throw new EntitlementLimitError(key, result.limit ?? 0, result.current);
   }
 }
+
+// For a "feature" key, at the top of a page component — checkLimit(key).allowed answers the
+// same question but this name reads clearly at a page's gating check. Not meaningful for
+// count/monthly keys (there's no fixed "does this page render at all" answer for those).
+export async function hasFeatureAccess(workspaceId: string, key: EntitlementKey): Promise<boolean> {
+  const result = await checkLimit(workspaceId, key);
+  return result.allowed;
+}

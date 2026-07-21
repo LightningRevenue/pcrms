@@ -4,6 +4,7 @@ import { SettingsHeader } from "@/components/settings-header";
 import { ObjectFieldsManager } from "@/components/object-fields-manager";
 import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { listFieldDefinitions, type ObjectType } from "@/lib/actions/custom-fields";
+import { hasFeatureAccess } from "@/lib/entitlements";
 
 const OBJECT_LABELS: Record<ObjectType, string> = {
   company: "Companies",
@@ -29,7 +30,10 @@ export default async function ObjectFieldsPage({
   }
 
   const objectType = object as ObjectType;
-  const customFields = await listFieldDefinitions(objectType);
+  const [customFields, canCreate] = await Promise.all([
+    listFieldDefinitions(objectType),
+    session.user.workspaceId ? hasFeatureAccess(session.user.workspaceId, "custom_fields_feature") : true,
+  ]);
 
   return (
     <>
@@ -42,6 +46,7 @@ export default async function ObjectFieldsPage({
           objectType={objectType}
           standardFields={STANDARD_FIELDS[objectType]}
           customFields={customFields}
+          canCreate={canCreate}
         />
       </div>
     </>
