@@ -100,6 +100,17 @@ export async function createTask(input: CreateTaskInput) {
   revalidatePath(`/contacts/${input.personId}`);
   revalidatePath("/contacts");
   revalidatePath("/tasks");
+  revalidatePath("/calendar");
+}
+
+export async function rescheduleTask(id: string, dueAt: Date) {
+  const { workspaceId } = await requireWorkspace();
+
+  const task = await db.task.update({ where: { id, workspaceId }, data: { dueAt } });
+
+  revalidatePath(`/contacts/${task.personId}`);
+  revalidatePath("/tasks");
+  revalidatePath("/calendar");
 }
 
 export type UpdateTaskInput = {
@@ -130,6 +141,7 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
   revalidatePath(`/contacts/${task.personId}`);
   revalidatePath("/contacts");
   revalidatePath("/tasks");
+  revalidatePath("/calendar");
 }
 
 export async function toggleTask(id: string) {
@@ -156,4 +168,5 @@ export async function toggleTask(id: string) {
   revalidatePath(`/contacts/${task.personId}`);
   revalidatePath("/contacts");
   revalidatePath("/tasks");
+  revalidatePath("/calendar");
 }
