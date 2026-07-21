@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Company, Opportunity, PipelineStage, Person, User } from "@prisma/client";
 import {
   KanbanSquare,
@@ -17,6 +18,7 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { moveOpportunityStage } from "@/lib/actions/opportunities";
+import { CreateDealPanel } from "@/components/create-deal-panel";
 
 export type OpportunityStage = string;
 
@@ -87,8 +89,11 @@ export function OpportunitiesView({
   opportunities: OpportunityRow[];
   stages: PipelineStage[];
 }) {
+  const router = useRouter();
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>(initial);
   const [, startTransition] = useTransition();
+  const [creating, setCreating] = useState(false);
+  const [createStage, setCreateStage] = useState<string | undefined>(undefined);
   const stageByLabel = new Map(stages.map((s) => [s.label, s]));
 
   function moveOpportunity(id: string, stage: OpportunityStage) {
@@ -98,6 +103,16 @@ export function OpportunitiesView({
     startTransition(() => moveOpportunityStage(id, stage));
   }
 
+  function openCreate(stage?: string) {
+    setCreateStage(stage);
+    setCreating(true);
+  }
+
+  function handleCreated() {
+    setCreating(false);
+    router.refresh();
+  }
+
   return (
     <div className="flex flex-col h-screen">
       <div className="h-12 shrink-0 flex items-center justify-between px-6 border-b border-border">
@@ -105,6 +120,13 @@ export function OpportunitiesView({
           <Target size={14} strokeWidth={1.75} className="text-rose-400" />
           <span className="font-medium">Opportunities</span>
         </div>
+        <button
+          onClick={() => openCreate()}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity"
+        >
+          <Plus size={14} strokeWidth={2} />
+          New Deal
+        </button>
       </div>
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
@@ -135,8 +157,10 @@ export function OpportunitiesView({
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
-        <KanbanBoard opportunities={opportunities} stages={stages} onMove={moveOpportunity} />
+        <KanbanBoard opportunities={opportunities} stages={stages} onMove={moveOpportunity} onAdd={openCreate} />
       </div>
+
+      {creating && <CreateDealPanel stages={stages} defaultStage={createStage} onClose={handleCreated} />}
     </div>
   );
 }
@@ -145,10 +169,12 @@ function KanbanBoard({
   opportunities,
   stages,
   onMove,
+  onAdd,
 }: {
   opportunities: OpportunityRow[];
   stages: PipelineStage[];
   onMove: (id: string, stage: OpportunityStage) => void;
+  onAdd: (stage: string) => void;
 }) {
   const [dragOver, setDragOver] = useState<OpportunityStage | null>(null);
 
@@ -245,7 +271,10 @@ function KanbanBoard({
               })}
             </div>
 
-            <button className="w-full flex items-center gap-1.5 px-1 py-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
+            <button
+              onClick={() => onAdd(stage.label)}
+              className="w-full flex items-center gap-1.5 px-1 py-1.5 text-[13px] text-subtle hover:text-foreground transition-colors"
+            >
               <Plus size={14} strokeWidth={1.75} />
               New
             </button>

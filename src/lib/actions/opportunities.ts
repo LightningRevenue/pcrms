@@ -74,6 +74,78 @@ export async function convertContactToOpportunity(input: ConvertToOpportunityInp
   return opportunity;
 }
 
+export type CreateOpportunityInput = {
+  name: string;
+  stage: OpportunityStage;
+  value: number;
+  contactId?: string | null;
+  companyId?: string | null;
+};
+
+export async function createOpportunity(input: CreateOpportunityInput) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const name = input.name.trim();
+  if (!name) throw new Error("Deal name is required");
+
+  // A contact's own company wins if the deal is also linked to a contact — keeps
+  // company/contact from disagreeing about who the deal is with.
+  let companyId = input.companyId ?? null;
+  if (input.contactId) {
+    const contact = await db.person.findUniqueOrThrow({ where: { id: input.contactId, workspaceId } });
+    companyId = contact.companyId;
+  }
+
+  const opportunity = await db.opportunity.create({
+    data: {
+      workspaceId,
+      name,
+      stage: input.stage,
+      value: input.value,
+      companyId,
+      contactId: input.contactId ?? null,
+      ownerId: userId,
+      createdById: userId,
+    },
+  });
+
+  await db.activity.create({
+    data: { workspaceId, entityType: "opportunity", entityId: opportunity.id, kind: "created", actorId: userId },
+  });
+  if (input.contactId) {
+    await db.activity.create({
+      data: {
+        workspaceId,
+        entityType: "person",
+        entityId: input.contactId,
+        kind: "opportunity_created",
+        field: "Opportunity",
+        newValue: name,
+        actorId: userId,
+      },
+    });
+  }
+  if (companyId) {
+    await db.activity.create({
+      data: {
+        workspaceId,
+        entityType: "company",
+        entityId: companyId,
+        kind: "opportunity_created",
+        field: "Opportunity",
+        newValue: name,
+        actorId: userId,
+      },
+    });
+  }
+
+  revalidatePath("/deals");
+  if (input.contactId) revalidatePath(`/contacts/${input.contactId}`);
+  if (companyId) revalidatePath(`/companies/${companyId}`);
+
+  return opportunity;
+}
+
 export async function listOpportunitiesForPerson(personId: string) {
   const ctx = await requireWorkspace();
   return db.opportunity.findMany({
