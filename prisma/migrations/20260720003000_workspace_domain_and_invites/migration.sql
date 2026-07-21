@@ -3,7 +3,22 @@
 ALTER TABLE "User" ADD COLUMN     "passwordHash" TEXT;
 
 -- AlterTable
-ALTER TABLE "Workspace" ADD COLUMN     "emailDomain" TEXT NOT NULL;
+ALTER TABLE "Workspace" ADD COLUMN     "emailDomain" TEXT;
+
+-- Backfill: derive each existing workspace's domain from its earliest member's email
+UPDATE "Workspace" w
+SET "emailDomain" = sub.domain
+FROM (
+    SELECT DISTINCT ON (wm."workspaceId")
+        wm."workspaceId",
+        split_part(u.email, '@', 2) AS domain
+    FROM "WorkspaceMember" wm
+    JOIN "User" u ON u.id = wm."userId"
+    ORDER BY wm."workspaceId", u.email ASC
+) sub
+WHERE w.id = sub."workspaceId" AND w."emailDomain" IS NULL;
+
+ALTER TABLE "Workspace" ALTER COLUMN "emailDomain" SET NOT NULL;
 
 -- CreateTable
 CREATE TABLE "WorkspaceInvite" (
