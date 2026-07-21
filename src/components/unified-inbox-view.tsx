@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Inbox as InboxIcon, Send, Reply, Plus, UserCheck, RefreshCw, User as UserIcon, Building2 } from "lucide-react";
+import { ChevronDown, Inbox as InboxIcon, Send, Reply, Plus, UserCheck, RefreshCw, User as UserIcon, Building2, Filter, Check, X } from "lucide-react";
 import DOMPurify from "isomorphic-dompurify";
 import type { InboxThread } from "@/lib/actions/inbox";
 import { syncInboxNow } from "@/lib/actions/inbox";
@@ -77,6 +77,7 @@ export function UnifiedInboxView({
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("received");
   const [query, setQuery] = useState("");
+  const [emailFilter, setEmailFilter] = useState<Set<string>>(new Set());
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(threads[0]?.threadId ?? null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
@@ -112,6 +113,17 @@ export function UnifiedInboxView({
     });
   }
 
+  const allEmailAddresses = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of threads) {
+      for (const m of t.messages) {
+        if (m.from) set.add(m.from.toLowerCase());
+        for (const to of m.to) set.add(to.toLowerCase());
+      }
+    }
+    return Array.from(set).sort();
+  }, [threads]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return threads.filter((t) => {
@@ -127,6 +139,12 @@ export function UnifiedInboxView({
       } else {
         if (!t.messages.some((m) => m.direction === "received")) return false;
       }
+      if (emailFilter.size > 0) {
+        const involved = t.messages.some(
+          (m) => emailFilter.has(m.from.toLowerCase()) || m.to.some((to) => emailFilter.has(to.toLowerCase()))
+        );
+        if (!involved) return false;
+      }
       if (!q) return true;
       const name = personName(last.person);
       return (
@@ -135,7 +153,7 @@ export function UnifiedInboxView({
         (last.person?.email ?? last.from).toLowerCase().includes(q)
       );
     });
-  }, [threads, tab, query]);
+  }, [threads, tab, query, emailFilter]);
 
   const selected = threads.find((t) => t.threadId === selectedThreadId) ?? filtered[0] ?? null;
   const lastMessage = selected?.messages[selected.messages.length - 1];
@@ -214,14 +232,41 @@ export function UnifiedInboxView({
             ))}
           </div>
 
-          <div className="px-2.5 pt-2.5 pb-1.5">
+          <div className="px-2.5 pt-2.5 pb-1.5 flex items-center gap-1.5">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search conversations..."
-              className="w-full px-2.5 py-1.5 rounded-md border border-border bg-surface text-[12.5px] outline-none focus:border-accent transition-colors"
+              className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md border border-border bg-surface text-[12.5px] outline-none focus:border-accent transition-colors"
             />
+            <EmailFilterPicker addresses={allEmailAddresses} selected={emailFilter} onChange={setEmailFilter} />
           </div>
+          {emailFilter.size > 0 && (
+            <div className="px-2.5 pb-1.5 flex flex-wrap gap-1">
+              {Array.from(emailFilter).map((email) => (
+                <button
+                  key={email}
+                  onClick={() =>
+                    setEmailFilter((prev) => {
+                      const next = new Set(prev);
+                      next.delete(email);
+                      return next;
+                    })
+                  }
+                  className="flex items-center gap-1 pl-2 pr-1.5 py-0.5 rounded-full bg-accent/10 text-accent text-[11px] hover:bg-accent/20 transition-colors"
+                >
+                  {email}
+                  <X size={11} strokeWidth={2} />
+                </button>
+              ))}
+              <button
+                onClick={() => setEmailFilter(new Set())}
+                className="text-[11px] text-subtle hover:text-foreground transition-colors px-1"
+              >
+                Clear
+              </button>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto px-1.5 pb-3">
             {filtered.length === 0 ? (
@@ -429,6 +474,98 @@ export function UnifiedInboxView({
           onClose={() => setComposingNew(false)}
           onSent={() => router.refresh()}
         />
+      )}
+    </div>
+  );
+}
+
+function EmailFilterPicker({
+  addresses,
+  selected,
+  onChange,
+}: {
+  addresses: string[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  const visible = addresses.filter((a) => a.includes(search.trim().toLowerCase()));
+
+  function toggle(email: string) {
+    const next = new Set(selected);
+    if (next.has(email)) next.delete(email);
+    else next.add(email);
+    onChange(next);
+  }
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Filter by email address"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[12.5px] transition-colors ${
+          selected.size > 0
+            ? "border-accent text-accent bg-accent/10"
+            : "border-border text-subtle hover:text-foreground hover:bg-muted"
+        }`}
+      >
+        <Filter size={13} strokeWidth={1.75} />
+        {selected.size > 0 ? selected.size : ""}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-1.5 w-72 border border-border rounded-lg bg-surface shadow-lg z-20 flex flex-col">
+          <div className="p-2 border-b border-border">
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search addresses..."
+              className="w-full px-2 py-1 rounded-md border border-border bg-background text-[12.5px] outline-none focus:border-accent transition-colors"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto py-1">
+            {visible.length === 0 ? (
+              <p className="px-3 py-2 text-[12px] text-subtle">No addresses found.</p>
+            ) : (
+              visible.map((email) => {
+                const checked = selected.has(email);
+                return (
+                  <button
+                    key={email}
+                    onClick={() => toggle(email)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[12.5px] hover:bg-muted transition-colors text-left"
+                  >
+                    <span className="truncate">{email}</span>
+                    {checked && <Check size={13} strokeWidth={2} className="shrink-0 text-accent" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {selected.size > 0 && (
+            <div className="border-t border-border p-1.5">
+              <button
+                onClick={() => onChange(new Set())}
+                className="w-full text-center text-[12px] text-subtle hover:text-foreground transition-colors py-1"
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
