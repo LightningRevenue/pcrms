@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import type { Activity, Company, ImportBatch, Person, Task, User } from "@prisma/client";
+import type { Activity, Company, ImportBatch, Note, Person, Task, User } from "@prisma/client";
 import {
   List,
   KanbanSquare,
@@ -35,8 +35,14 @@ import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
 
-export type PersonRow = Person & { company: Company | null; createdBy: User | null; importBatch: ImportBatch | null };
+export type PersonRow = Person & {
+  company: Company | null;
+  createdBy: User | null;
+  owner: User | null;
+  importBatch: ImportBatch | null;
+};
 export type PersonCustomField = { id: string; key: string; label: string };
+export type NoteWithAuthor = Note & { createdBy: User | null };
 
 const AVATAR_COLORS = [
   "bg-rose-500 text-white",
@@ -189,6 +195,8 @@ export function ContactsView({
   people,
   lastActivityByPerson,
   nextTaskByPerson,
+  tasksByPerson = new Map(),
+  notesByPerson = new Map(),
   customFields,
   title = "People",
   onAddClick,
@@ -197,6 +205,8 @@ export function ContactsView({
   people: PersonRow[];
   lastActivityByPerson: Map<string, Activity>;
   nextTaskByPerson: Map<string, Task>;
+  tasksByPerson?: Map<string, Task[]>;
+  notesByPerson?: Map<string, NoteWithAuthor[]>;
   customFields: PersonCustomField[];
   title?: string;
   onAddClick?: () => void;
@@ -397,6 +407,9 @@ export function ContactsView({
           person={previewPerson}
           lastActivity={lastActivityByPerson.get(previewPerson.id)}
           nextTask={nextTaskByPerson.get(previewPerson.id)}
+          tasks={tasksByPerson.get(previewPerson.id) ?? []}
+          notes={notesByPerson.get(previewPerson.id) ?? []}
+          users={users}
           onClose={() => setPreviewPerson(null)}
           onComposeEmail={(p) => {
             setPreviewPerson(null);

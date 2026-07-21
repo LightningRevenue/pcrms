@@ -1,22 +1,30 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   X,
   Mail,
   Phone,
   Building2,
-  Briefcase,
   Link2,
-  CalendarDays,
-  UserCircle,
   ArrowUpRight,
   History,
   CalendarClock,
+  CalendarDays,
+  UserCircle,
+  CheckSquare,
+  StickyNote,
+  Circle,
+  CheckCircle2,
 } from "lucide-react";
 import type { Activity, Task } from "@prisma/client";
-import type { PersonRow } from "@/components/contacts-view";
+import type { NoteWithAuthor, PersonRow } from "@/components/contacts-view";
 import { CompanyLogo } from "@/components/company-logo";
+import { setPersonOwner } from "@/lib/actions/contacts";
+import { toggleTask } from "@/lib/actions/tasks";
+
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
 function fullName(p: Pick<PersonRow, "firstName" | "lastName">) {
   return [p.firstName, p.lastName].filter(Boolean).join(" ");
@@ -47,6 +55,37 @@ function formatDue(date: Date) {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatDate(date: Date) {
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function isDueTodayOrLater(dueAt: Date | null) {
+  if (!dueAt) return true; // no due date — still show it, sorted last
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return dueAt.getTime() >= startOfToday.getTime();
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border p-2.5 min-w-0">
+      <div className="flex items-center gap-1.5 text-[11px] text-subtle uppercase tracking-wide">
+        <Icon size={12} strokeWidth={1.75} />
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="mt-1 text-[13px] truncate">{children}</div>
+    </div>
+  );
+}
+
 function Row({
   icon: Icon,
   label,
@@ -58,7 +97,7 @@ function Row({
 }) {
   return (
     <div className="flex items-center gap-2 px-1 py-1.5">
-      <div className="flex items-center gap-2 w-28 shrink-0 text-[13px] text-subtle">
+      <div className="flex items-center gap-2 w-24 shrink-0 text-[13px] text-subtle">
         <Icon size={14} strokeWidth={1.75} />
         {label}
       </div>
@@ -67,20 +106,91 @@ function Row({
   );
 }
 
+function SectionHeader({ icon: Icon, label, count }: { icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[12px] font-medium text-subtle uppercase tracking-wide">
+      <Icon size={13} strokeWidth={1.75} />
+      {label}
+      <span className="text-subtle/70 normal-case font-normal">· {count}</span>
+    </div>
+  );
+}
+
+function TaskRow({ task }: { task: Task }) {
+  const [pending, startTransition] = useTransition();
+  const [done, setDone] = useState(task.done);
+
+  return (
+    <div className="flex items-start gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
+      <button
+        onClick={() =>
+          startTransition(async () => {
+            setDone((d) => !d);
+            await toggleTask(task.id);
+          })
+        }
+        disabled={pending}
+        className="mt-0.5 text-subtle hover:text-foreground transition-colors shrink-0"
+      >
+        {done ? <CheckCircle2 size={15} strokeWidth={1.75} className="text-emerald-400" /> : <Circle size={15} strokeWidth={1.75} />}
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className={`text-[13px] truncate ${done ? "line-through text-subtle" : ""}`}>{task.title}</p>
+        {task.dueAt && <p className="text-[11px] text-subtle">{formatDue(task.dueAt)}</p>}
+      </div>
+    </div>
+  );
+}
+
+function NoteRow({ note }: { note: NoteWithAuthor }) {
+  return (
+    <div className="px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
+      <p className="text-[13px] whitespace-pre-wrap break-words">{note.body}</p>
+      <p className="text-[11px] text-subtle mt-0.5">
+        {note.createdBy?.name ?? note.createdBy?.email ?? "Unknown"} · {relativeTime(note.createdAt)}
+      </p>
+    </div>
+  );
+}
+
 export function ContactQuickPreview({
   person,
   lastActivity,
   nextTask,
+  tasks,
+  notes,
+  users,
   onClose,
   onComposeEmail,
 }: {
   person: PersonRow;
   lastActivity?: Activity;
   nextTask?: Task;
+  tasks: Task[];
+  notes: NoteWithAuthor[];
+  users: WorkspaceUser[];
   onClose: () => void;
   onComposeEmail: (person: PersonRow) => void;
 }) {
   const name = fullName(person) || "Untitled";
+  const [ownerId, setOwnerId] = useState(person.ownerId);
+  const [ownerPending, startOwnerTransition] = useTransition();
+
+  const upcomingTasks = tasks
+    .filter((t) => isDueTodayOrLater(t.dueAt))
+    .sort((a, b) => {
+      if (!a.dueAt && !b.dueAt) return 0;
+      if (!a.dueAt) return 1;
+      if (!b.dueAt) return -1;
+      return a.dueAt.getTime() - b.dueAt.getTime();
+    });
+
+  function handleOwnerChange(next: string | null) {
+    setOwnerId(next);
+    startOwnerTransition(async () => {
+      await setPersonOwner(person.id, next);
+    });
+  }
 
   return (
     <>
@@ -105,6 +215,39 @@ export function ContactQuickPreview({
             <div className="min-w-0">
               <p className="text-[14px] font-medium truncate">{name}</p>
               {person.jobTitle && <p className="text-[12px] text-subtle truncate">{person.jobTitle}</p>}
+            </div>
+          </div>
+
+          <div className="px-3 pt-3 grid grid-cols-2 gap-2">
+            <StatCard icon={History} label="Last Activity">
+              {lastActivity ? relativeTime(lastActivity.createdAt) : "—"}
+            </StatCard>
+            <StatCard icon={CalendarClock} label="Next Activity">
+              {nextTask ? (nextTask.dueAt ? formatDue(nextTask.dueAt) : nextTask.title) : "—"}
+            </StatCard>
+            <StatCard icon={CalendarDays} label="Created At">
+              {formatDate(person.createdAt)}
+            </StatCard>
+            <div className="rounded-lg border border-border p-2.5 min-w-0">
+              <div className="flex items-center gap-1.5 text-[11px] text-subtle uppercase tracking-wide">
+                <UserCircle size={12} strokeWidth={1.75} />
+                Owner
+              </div>
+              <select
+                value={ownerId ?? ""}
+                onChange={(e) => handleOwnerChange(e.target.value || null)}
+                disabled={ownerPending}
+                className="mt-1 w-full bg-transparent text-[13px] outline-none cursor-pointer disabled:opacity-50 -ml-0.5"
+              >
+                <option value="" className="bg-background text-foreground">
+                  Unassigned
+                </option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id} className="bg-background text-foreground">
+                    {u.name ?? u.email ?? "Unknown"}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -147,24 +290,32 @@ export function ContactQuickPreview({
                 </a>
               </Row>
             )}
-            {lastActivity && (
-              <Row icon={History} label="Last activity">
-                {relativeTime(lastActivity.createdAt)}
-              </Row>
+          </div>
+
+          <div className="px-3 pt-1 pb-3 border-t border-border">
+            <SectionHeader icon={CheckSquare} label="Tasks" count={upcomingTasks.length} />
+            {upcomingTasks.length > 0 ? (
+              <div className="max-h-56 overflow-y-auto space-y-0.5 pr-1">
+                {upcomingTasks.map((t) => (
+                  <TaskRow key={t.id} task={t} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[12px] text-subtle px-1">No upcoming tasks.</p>
             )}
-            {nextTask && (
-              <Row icon={CalendarClock} label="Next activity">
-                {nextTask.dueAt ? formatDue(nextTask.dueAt) : nextTask.title}
-              </Row>
+          </div>
+
+          <div className="px-3 pt-1 pb-4 border-t border-border">
+            <SectionHeader icon={StickyNote} label="Notes" count={notes.length} />
+            {notes.length > 0 ? (
+              <div className="max-h-56 overflow-y-auto space-y-0.5 pr-1">
+                {notes.map((n) => (
+                  <NoteRow key={n.id} note={n} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[12px] text-subtle px-1">No notes yet.</p>
             )}
-            {person.createdBy && (
-              <Row icon={UserCircle} label="Created by">
-                {person.createdBy.name ?? person.createdBy.email}
-              </Row>
-            )}
-            <Row icon={CalendarDays} label="Created">
-              {relativeTime(person.createdAt)}
-            </Row>
           </div>
         </div>
 

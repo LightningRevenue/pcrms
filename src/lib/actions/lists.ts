@@ -60,7 +60,7 @@ export async function getListPeople(entityIds: string[]) {
   const ctx = await requireWorkspace();
   return db.person.findMany({
     where: { workspaceId: ctx.workspaceId, id: { in: entityIds }, ...personVisibilityFilter(ctx) },
-    include: { company: true, createdBy: true, importBatch: true },
+    include: { company: true, createdBy: true, owner: true, importBatch: true },
     orderBy: { createdAt: "desc" },
   });
 }
