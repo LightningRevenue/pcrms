@@ -26,12 +26,14 @@ import {
   History,
   CalendarClock,
   X,
+  Eye,
 } from "lucide-react";
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
 import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
+import { ContactQuickPreview } from "@/components/contact-quick-preview";
 
 export type PersonRow = Person & { company: Company | null; createdBy: User | null; importBatch: ImportBatch | null };
 export type PersonCustomField = { id: string; key: string; label: string };
@@ -208,6 +210,7 @@ export function ContactsView({
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
   const [sort, setSort] = useState<{ key: ColumnKey; dir: SortDir } | null>(null);
   const [changingOwner, setChangingOwner] = useState(false);
+  const [previewPerson, setPreviewPerson] = useState<PersonRow | null>(null);
 
   function handleSort(key: ColumnKey) {
     setSort((prev) => {
@@ -313,6 +316,7 @@ export function ContactsView({
             selected={selected}
             onSelectedChange={setSelected}
             onComposeEmail={(p) => setDraft({ personId: p.id, to: p.email ? [p.email] : [], contactFirstName: p.firstName })}
+            onPreview={setPreviewPerson}
             lastActivityByPerson={lastActivityByPerson}
             nextTaskByPerson={nextTaskByPerson}
             sort={sort}
@@ -388,6 +392,18 @@ export function ContactsView({
 
       {creating && <CreateContactPanel onClose={() => setCreating(false)} />}
       {draft && <EmailComposer draft={draft} onClose={() => setDraft(null)} />}
+      {previewPerson && (
+        <ContactQuickPreview
+          person={previewPerson}
+          lastActivity={lastActivityByPerson.get(previewPerson.id)}
+          nextTask={nextTaskByPerson.get(previewPerson.id)}
+          onClose={() => setPreviewPerson(null)}
+          onComposeEmail={(p) => {
+            setPreviewPerson(null);
+            setDraft({ personId: p.id, to: p.email ? [p.email] : [], contactFirstName: p.firstName });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -506,6 +522,7 @@ function ListView({
   selected,
   onSelectedChange,
   onComposeEmail,
+  onPreview,
   lastActivityByPerson,
   nextTaskByPerson,
   sort,
@@ -517,6 +534,7 @@ function ListView({
   selected: Set<string>;
   onSelectedChange: (next: Set<string>) => void;
   onComposeEmail: (person: PersonRow) => void;
+  onPreview: (person: PersonRow) => void;
   lastActivityByPerson: Map<string, Activity>;
   nextTaskByPerson: Map<string, Task>;
   sort: { key: ColumnKey; dir: SortDir } | null;
@@ -534,7 +552,7 @@ function ListView({
     return [...standard, ...custom];
   }, [visibleColumns, customFields]);
 
-  const gridTemplate = `28px 220px ${cols.map(() => "180px").join(" ")}`;
+  const gridTemplate = `28px 28px 220px ${cols.map(() => "180px").join(" ")}`;
   const allSelected = people.length > 0 && people.every((p) => selected.has(p.id));
 
   function toggleAll() {
@@ -555,6 +573,7 @@ function ListView({
         style={{ gridTemplateColumns: gridTemplate }}
       >
         <input type="checkbox" className="size-3.5 rounded-sm accent-accent" checked={allSelected} onChange={toggleAll} />
+        <span />
         <span className="flex items-center gap-1.5 pl-1">
           <UserCircle size={13} strokeWidth={1.75} />
           Name
@@ -594,6 +613,13 @@ function ListView({
                 checked={selected.has(p.id)}
                 onChange={() => toggleOne(p.id)}
               />
+              <button
+                onClick={() => onPreview(p)}
+                title="Quick preview"
+                className="p-1 rounded-md text-subtle hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <Eye size={13} strokeWidth={1.75} />
+              </button>
               <Link href={`/contacts/${p.id}`} className="flex items-center gap-2 min-w-0 pl-1 group">
                 {p.company?.domain ? (
                   <CompanyLogo domain={p.company.domain} fallbackText={initials(name) || "?"} size={24} rounded="rounded-full" className="text-[10px]" />
