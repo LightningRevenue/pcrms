@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { campaignQueue } from "@/lib/campaign-queue";
+import { assertLimit } from "@/lib/entitlements";
 
 // Random pace between sends so a bulk campaign doesn't look/behave like a mail blast.
 const MIN_SEND_GAP_MS = 30_000;
@@ -38,6 +39,7 @@ export async function getCampaign(id: string) {
 
 export async function createCampaign(name: string) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "campaigns_count");
 
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");
@@ -347,6 +349,7 @@ export async function getCampaignReadiness(campaignId: string): Promise<Campaign
 // trickles out over time instead of firing all at once.
 export async function startCampaign(campaignId: string) {
   const { workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "campaigns_feature");
 
   const campaign = await db.campaign.findUniqueOrThrow({
     where: { id: campaignId, workspaceId },

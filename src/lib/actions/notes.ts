@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export async function listNotesForPerson(personId: string) {
   const { workspaceId } = await requireWorkspace();
@@ -24,6 +25,7 @@ export async function listNotesForOpportunity(opportunityId: string) {
 
 export async function createNote(personId: string, body: string, opportunityIds?: string[]) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "notes_count");
 
   const trimmed = body.trim();
   if (!trimmed) throw new Error("Note can't be empty");

@@ -8,6 +8,7 @@ import { sendGmailMessage } from "@/lib/gmail";
 import { syncPersonEmailThreads } from "@/lib/gmail-sync";
 import { getTrackingBaseUrl } from "@/lib/workspace-settings";
 import { interpolateForPerson } from "@/lib/template-variables";
+import { assertLimit } from "@/lib/entitlements";
 
 export type SendEmailInput = {
   personId: string;
@@ -25,6 +26,7 @@ export async function sendEmail(input: SendEmailInput) {
   if (!session?.user?.id || !session.user.email) throw new Error("Not authenticated");
   const workspaceId = session.user.workspaceId;
   if (!workspaceId) throw new Error("No workspace");
+  await assertLimit(workspaceId, "emails_sent_monthly");
 
   const replyTo = input.replyToEmailId
     ? await db.email.findUnique({ where: { id: input.replyToEmailId, workspaceId } })
@@ -110,6 +112,7 @@ export type TemplateInput = { name: string; subject: string; bodyHtml: string };
 
 export async function createTemplate(input: TemplateInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "email_templates_count");
 
   const name = input.name.trim();
   if (!name) throw new Error("Name is required");

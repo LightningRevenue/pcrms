@@ -3,11 +3,12 @@ import { ArrowLeft } from "lucide-react";
 import { requirePlatformAdmin } from "@/lib/admin";
 import { getWorkspaceForAdmin } from "@/lib/actions/admin";
 import { WorkspaceAdminActions } from "@/components/workspace-admin-actions";
+import { WorkspacePlanSelect } from "@/components/workspace-plan-select";
 
 export default async function AdminWorkspaceDetailPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   await requirePlatformAdmin();
   const { workspaceId } = await params;
-  const { workspace, usage } = await getWorkspaceForAdmin(workspaceId);
+  const { workspace, usage, plans } = await getWorkspaceForAdmin(workspaceId);
 
   return (
     <div className="px-8 py-10 max-w-2xl mx-auto">
@@ -21,7 +22,10 @@ export default async function AdminWorkspaceDetailPage({ params }: { params: Pro
           <h1 className="text-xl font-medium">{workspace.name}</h1>
           <p className="text-[13px] text-subtle mt-1">{workspace.emailDomain}</p>
         </div>
-        <WorkspaceAdminActions workspaceId={workspace.id} suspended={!!workspace.suspendedAt} />
+        <div className="flex items-center gap-2">
+          <WorkspacePlanSelect workspaceId={workspace.id} planId={workspace.planId} plans={plans} />
+          <WorkspaceAdminActions workspaceId={workspace.id} suspended={!!workspace.suspendedAt} />
+        </div>
       </div>
 
       <p className="text-[12px] font-medium text-subtle uppercase tracking-wide mt-8">Usage</p>

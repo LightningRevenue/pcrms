@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export type StageOutcome = "open" | "won" | "lost";
 
@@ -28,6 +29,7 @@ export async function listPipelineStages() {
 
 export async function createPipelineStage(label: string, outcome: StageOutcome) {
   const { workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "pipeline_stages_count");
 
   const trimmed = label.trim();
   if (!trimmed) throw new Error("Label is required");

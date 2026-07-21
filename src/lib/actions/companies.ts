@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireWorkspace, companyVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { COMPANY_FIELD_LABELS } from "@/lib/field-labels";
+import { assertLimit } from "@/lib/entitlements";
 
 export type CreateCompanyInput = {
   name: string;
@@ -19,6 +20,7 @@ export type CompanyField = keyof typeof FIELD_LABELS;
 
 export async function createCompany(input: CreateCompanyInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "companies_count");
 
   const name = input.name.trim();
   if (!name) throw new Error("Name is required");

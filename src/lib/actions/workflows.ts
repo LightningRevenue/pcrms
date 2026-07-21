@@ -5,9 +5,12 @@ import { redirect } from "next/navigation";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import type { TriggerType } from "@/lib/workflow-triggers";
+import { assertLimit } from "@/lib/entitlements";
 
 export async function createWorkflow() {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "workflows_feature");
+  await assertLimit(workspaceId, "workflows_count");
 
   const workflow = await db.workflow.create({
     data: { workspaceId, name: "Untitled", createdById: userId },

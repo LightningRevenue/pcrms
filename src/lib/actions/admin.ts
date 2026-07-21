@@ -29,16 +29,18 @@ export async function getWorkspaceForAdmin(workspaceId: string) {
     where: { id: workspaceId },
     include: {
       members: { select: { role: true, onboardedAt: true, user: { select: { id: true, name: true, email: true } } } },
+      plan: true,
     },
   });
 
-  const [companyCount, personCount, opportunityCount] = await Promise.all([
+  const [companyCount, personCount, opportunityCount, plans] = await Promise.all([
     db.company.count({ where: { workspaceId, deletedAt: null } }),
     db.person.count({ where: { workspaceId, deletedAt: null } }),
     db.opportunity.count({ where: { workspaceId, deletedAt: null } }),
+    db.plan.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
   ]);
 
-  return { workspace, usage: { companyCount, personCount, opportunityCount } };
+  return { workspace, usage: { companyCount, personCount, opportunityCount }, plans };
 }
 
 export async function suspendWorkspace(workspaceId: string) {

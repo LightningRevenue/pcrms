@@ -81,7 +81,10 @@ export async function ensureWorkspaceMembership(userId: string, email: string, i
     return null;
   }
 
-  const workspace = await db.workspace.create({ data: { name: domain, emailDomain: domain } });
+  const defaultPlan = await db.plan.findFirstOrThrow({ where: { isDefault: true } });
+  const workspace = await db.workspace.create({
+    data: { name: domain, emailDomain: domain, planId: defaultPlan.id },
+  });
   return db.workspaceMember.create({ data: { workspaceId: workspace.id, userId, role: "owner" } });
 }
 

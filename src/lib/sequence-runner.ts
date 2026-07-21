@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { sendGmailMessage } from "@/lib/gmail";
 import { interpolateForPerson } from "@/lib/template-variables";
 import { getTrackingBaseUrlForWorker } from "@/lib/workspace-settings";
+import { assertLimit } from "@/lib/entitlements";
 
 const CRON_JOB_NAME = "sequence-step-runner";
 
@@ -37,6 +38,7 @@ async function executeStepRun(
   if (step.type === "email") {
     if (!enrollment.person.email) throw new Error("Contact has no email address");
     if (!actorId) throw new Error("Sequence has no owner to send as");
+    await assertLimit(workspaceId, "emails_sent_monthly");
 
     const owner = await db.user.findUnique({ where: { id: actorId } });
     if (!owner?.email) throw new Error("Sequence owner has no connected email");

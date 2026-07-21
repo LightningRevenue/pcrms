@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
 import { PERSON_FIELD_LABELS } from "@/lib/field-labels";
+import { assertLimit } from "@/lib/entitlements";
 
 export type CreateContactInput = {
   firstName: string;
@@ -21,14 +22,17 @@ const FIELD_LABELS = PERSON_FIELD_LABELS;
 export type PersonField = keyof typeof FIELD_LABELS;
 
 async function resolveCompanyId(workspaceId: string, name: string, domain?: string | null) {
-  const company =
-    (await db.company.findFirst({ where: { workspaceId, name } })) ??
-    (await db.company.create({ data: { workspaceId, name, domain: domain || null } }));
+  const existing = await db.company.findFirst({ where: { workspaceId, name } });
+  if (existing) return existing.id;
+
+  await assertLimit(workspaceId, "companies_count");
+  const company = await db.company.create({ data: { workspaceId, name, domain: domain || null } });
   return company.id;
 }
 
 export async function createContact(input: CreateContactInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "contacts_count");
 
   const firstName = input.firstName.trim();
   if (!firstName) throw new Error("First name is required");

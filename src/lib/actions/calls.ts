@@ -4,6 +4,7 @@ import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { getTwilioAccount } from "@/lib/actions/twilio";
 import { isVoiceReady } from "@/lib/twilio-helpers";
+import { assertLimit } from "@/lib/entitlements";
 
 export async function getVoiceStatus() {
   const account = await getTwilioAccount();
@@ -16,6 +17,8 @@ export async function getVoiceStatus() {
 // exist in the CRM's own session context.
 export async function startCall(personId: string) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "voice_calling_feature");
+  await assertLimit(workspaceId, "calls_monthly");
 
   const person = await db.person.findUniqueOrThrow({ where: { id: personId, workspaceId } });
   if (!person.phone) throw new Error("This contact has no phone number");

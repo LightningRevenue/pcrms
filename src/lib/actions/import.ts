@@ -6,6 +6,7 @@ import { parseCsv } from "@/lib/csv";
 import { guessMapping, STANDARD_IMPORT_FIELDS, type ImportField } from "@/lib/import-fields";
 import { importQueue } from "@/lib/import-queue";
 import type { ObjectType } from "@/lib/actions/custom-fields";
+import { assertLimit, checkLimit, EntitlementLimitError } from "@/lib/entitlements";
 
 export async function parseCsvPreview(objectType: ObjectType, csvText: string) {
   const { workspaceId } = await requireWorkspace();
@@ -35,9 +36,18 @@ export async function startImport(
   mapping: Record<string, string>
 ) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "csv_import_feature");
 
   const batchName = name.trim();
   if (!batchName) throw new Error("Import name is required");
+
+  // Row count isn't known until the CSV is parsed — check current usage + this batch's
+  // rows against the monthly cap here, before enqueueing, rather than mid-worker.
+  const rowCount = parseCsv(csvText).length - 1;
+  const usage = await checkLimit(workspaceId, "import_rows_monthly");
+  if (usage.limit !== null && usage.current + Math.max(rowCount, 0) > usage.limit) {
+    throw new EntitlementLimitError("import_rows_monthly", usage.limit, usage.current);
+  }
 
   const batch = await db.importBatch.create({
     data: {

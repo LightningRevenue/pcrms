@@ -10,6 +10,7 @@ import { parseCsv } from "@/lib/csv";
 import { interpolateForPerson } from "@/lib/template-variables";
 import { encrypt, decrypt } from "@/lib/encryption";
 import type { MailboxAccount } from "@prisma/client";
+import { assertLimit } from "@/lib/entitlements";
 
 export async function listMailboxAccounts() {
   const { workspaceId } = await requireWorkspace();
@@ -38,6 +39,8 @@ export type MailboxAccountInput = {
 
 export async function createMailboxAccount(input: MailboxAccountInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "outreach_inboxes_feature");
+  await assertLimit(workspaceId, "mailbox_accounts_count");
 
   const label = input.label.trim();
   const email = input.email.trim();
@@ -125,6 +128,7 @@ export async function importMailboxAccountsCsv(csvText: string) {
     const lastName = idx.lastName !== -1 ? row[idx.lastName]?.trim() : "";
     const label = [firstName, lastName].filter(Boolean).join(" ") || email;
 
+    await assertLimit(workspaceId, "mailbox_accounts_count");
     await db.mailboxAccount.create({
       data: {
         workspaceId,
@@ -240,6 +244,7 @@ export type SendViaMailboxAccountInput = {
 export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
   if (input.to.length === 0) throw new Error("Add at least one recipient");
   if (!input.subject.trim()) throw new Error("Add a subject");
+  await assertLimit(input.workspaceId, "emails_sent_monthly");
 
   const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id: input.mailboxAccountId, workspaceId: input.workspaceId } });
 

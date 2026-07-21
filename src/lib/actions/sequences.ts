@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export type SequenceStepType = "email" | "task" | "note";
 
@@ -51,6 +52,7 @@ export async function getSequence(id: string) {
 
 export async function createSequence(name: string) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "sequences_count");
 
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");
@@ -78,6 +80,7 @@ export async function deleteSequence(id: string) {
 
 export async function addSequenceStep(sequenceId: string, input: SequenceStepInput) {
   const { workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "sequence_steps_count");
 
   const last = await db.sequenceStep.findFirst({
     where: { workspaceId, sequenceId },
@@ -124,6 +127,8 @@ export async function reorderSequenceSteps(sequenceId: string, orderedIds: strin
 
 export async function enrollPersonInSequence(sequenceId: string, personId: string, startAt?: Date) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "sequences_feature");
+  await assertLimit(workspaceId, "sequence_enrollments_count");
 
   const [sequence, existing] = await Promise.all([
     db.sequence.findUniqueOrThrow({ where: { id: sequenceId, workspaceId }, include: { steps: true } }),

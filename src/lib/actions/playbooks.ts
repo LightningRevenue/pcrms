@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export async function listPlaybooks() {
   const { workspaceId } = await requireWorkspace();
@@ -26,6 +27,8 @@ export type PlaybookInput = { title: string; sections: PlaybookSectionInput[] };
 
 export async function createPlaybook(input: PlaybookInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "playbooks_feature");
+  await assertLimit(workspaceId, "playbooks_count");
 
   const title = input.title.trim();
   if (!title) throw new Error("Title is required");

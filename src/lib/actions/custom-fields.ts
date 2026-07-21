@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export type ObjectType = "company" | "person";
 export type CustomFieldType = "TEXT" | "NUMBER" | "DATE" | "SELECT";
@@ -40,6 +41,8 @@ export async function createFieldDefinition(
   options?: string[]
 ) {
   const { workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "custom_fields_feature");
+  await assertLimit(workspaceId, "custom_fields_count");
 
   const trimmed = label.trim();
   if (!trimmed) throw new Error("Label is required");

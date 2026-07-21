@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export type TaskType = "call" | "email" | "event" | "meet" | "general";
 export type TaskPriority = "low" | "medium" | "high";
@@ -65,6 +66,7 @@ export async function listTasksWithDueDate() {
 
 export async function createTask(input: CreateTaskInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "tasks_count");
 
   const title = input.title.trim();
   if (!title) throw new Error("Title is required");

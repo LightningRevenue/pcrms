@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace, opportunityVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export type OpportunityStage = string;
 
@@ -15,6 +16,7 @@ export type ConvertToOpportunityInput = {
 
 export async function convertContactToOpportunity(input: ConvertToOpportunityInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "deals_count");
 
   const name = input.name.trim();
   if (!name) throw new Error("Deal name is required");
@@ -84,6 +86,7 @@ export type CreateOpportunityInput = {
 
 export async function createOpportunity(input: CreateOpportunityInput) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "deals_count");
 
   const name = input.name.trim();
   if (!name) throw new Error("Deal name is required");

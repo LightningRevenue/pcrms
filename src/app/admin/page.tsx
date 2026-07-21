@@ -13,12 +13,20 @@ export default async function AdminPage() {
           <h1 className="text-xl font-medium">Workspaces</h1>
           <p className="text-[13px] text-subtle mt-1">All workspaces on the platform.</p>
         </div>
-        <Link
-          href="/admin/queues"
-          className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
-        >
-          Background jobs
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/plans"
+            className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          >
+            Plans
+          </Link>
+          <Link
+            href="/admin/queues"
+            className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          >
+            Background jobs
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 border border-border rounded-md overflow-hidden">

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace, personVisibilityFilter, opportunityVisibilityFilter, companyVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { assertLimit } from "@/lib/entitlements";
 
 export type ListEntityType = "company" | "person" | "opportunity";
 
@@ -76,6 +77,8 @@ export async function getListOpportunities(entityIds: string[]) {
 
 export async function createList(name: string, entityType: ListEntityType) {
   const { userId, workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "lists_feature");
+  await assertLimit(workspaceId, "lists_count");
 
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");

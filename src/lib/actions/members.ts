@@ -6,6 +6,7 @@ import { requireWorkspace, requireWorkspaceOwner } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { sendFromNotificationInbox } from "@/lib/notification-inbox-send";
 import { getTrackingBaseUrl } from "@/lib/workspace-settings";
+import { assertLimit } from "@/lib/entitlements";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -37,6 +38,7 @@ export type InviteMemberInput = { email: string; role?: WorkspaceRole };
 // workspace, not accidentally create/join the wrong one.
 export async function inviteMember(input: InviteMemberInput) {
   const { userId, workspaceId } = await requireWorkspaceOwner();
+  await assertLimit(workspaceId, "members_count");
 
   const email = input.email.trim().toLowerCase();
   if (!email) throw new Error("Email is required");
