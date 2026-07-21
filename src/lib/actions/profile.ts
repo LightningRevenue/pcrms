@@ -1,14 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export async function getMyProfile() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId } = await requireWorkspace();
 
-  return db.user.findUniqueOrThrow({ where: { id: session.user.id } });
+  return db.user.findUniqueOrThrow({ where: { id: userId } });
 }
 
 export type ProfileInput = {
@@ -22,15 +21,14 @@ export type ProfileInput = {
 };
 
 export async function updateProfile(input: ProfileInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId } = await requireWorkspace();
 
   const firstName = input.firstName.trim();
   if (!firstName) throw new Error("First name is required");
   const lastName = input.lastName.trim();
 
   await db.user.update({
-    where: { id: session.user.id },
+    where: { id: userId },
     data: {
       firstName,
       lastName,

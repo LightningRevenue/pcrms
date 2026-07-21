@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { getTwilioAccount } from "@/lib/actions/twilio";
 import { isVoiceReady } from "@/lib/twilio-helpers";
@@ -15,17 +15,17 @@ export async function getVoiceStatus() {
 // it because Twilio's request has no personId/createdById to attach — those only
 // exist in the CRM's own session context.
 export async function startCall(personId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
-  const person = await db.person.findUniqueOrThrow({ where: { id: personId } });
+  const person = await db.person.findUniqueOrThrow({ where: { id: personId, workspaceId } });
   if (!person.phone) throw new Error("This contact has no phone number");
 
   const call = await db.call.create({
     data: {
+      workspaceId,
       toNumber: person.phone,
       personId,
-      createdById: session.user.id,
+      createdById: userId,
     },
   });
 
@@ -33,8 +33,9 @@ export async function startCall(personId: string) {
 }
 
 export async function listCallsForPerson(personId: string) {
+  const { workspaceId } = await requireWorkspace();
   return db.call.findMany({
-    where: { personId },
+    where: { workspaceId, personId },
     orderBy: { startedAt: "desc" },
     include: { createdBy: true },
   });

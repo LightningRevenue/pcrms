@@ -250,6 +250,11 @@ export function UnifiedInboxView({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-1.5">
                         <span className="text-[13px] font-semibold truncate">{name || "Unknown"}</span>
+                        {thread.messages.some((m) => m.campaignMember?.campaign) && (
+                          <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-500 text-white">
+                            Marketing
+                          </span>
+                        )}
                         <span className="ml-auto text-[11px] text-subtle shrink-0">{formatListTime(last.sentAt)}</span>
                       </div>
                       <p className="text-[12.5px] truncate mt-0.5">{last.subject}</p>
@@ -340,6 +345,14 @@ export function UnifiedInboxView({
                             >
                               {message.direction === "sent" ? "📤 Sent" : "📥 Received"}
                             </span>
+                            {message.campaignMember?.campaign && (
+                              <span
+                                className="shrink-0 text-[10.5px] font-medium px-1.5 py-0.5 rounded-full bg-violet-500 text-white"
+                                title={`Sent from campaign: ${message.campaignMember.campaign.name}`}
+                              >
+                                Marketing
+                              </span>
+                            )}
                             <span className="text-[12px] text-subtle truncate">
                               to {message.to.join(", ") || "—"}
                             </span>

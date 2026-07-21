@@ -13,7 +13,11 @@ export async function POST(request: Request) {
   const callId = form.get("CallId")?.toString();
   const callSid = form.get("CallSid")?.toString();
 
-  const account = await db.twilioAccount.findUnique({ where: { id: "default" } });
+  // No session here (Twilio is calling this webhook directly) — resolve the workspace
+  // via the Call row the browser SDK created (see startCall in actions/calls.ts) before
+  // placing this call, so the right workspace's TwilioAccount (caller ID) is used.
+  const call = callId ? await db.call.findUnique({ where: { id: callId } }) : null;
+  const account = call ? await db.twilioAccount.findUnique({ where: { workspaceId: call.workspaceId } }) : null;
   const twiml = new twilio.twiml.VoiceResponse();
 
   if (!to || !account) {
@@ -22,7 +26,7 @@ export async function POST(request: Request) {
   }
 
   if (callId && callSid) {
-    await db.call.updateMany({ where: { id: callId }, data: { twilioCallSid: callSid, status: "ringing" } });
+    await db.call.updateMany({ where: { id: callId, workspaceId: call!.workspaceId }, data: { twilioCallSid: callSid, status: "ringing" } });
   }
 
   const baseUrl = await getTrackingBaseUrlForWorker();

@@ -1,8 +1,15 @@
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { TwilioSettingsForm } from "@/components/twilio-settings-form";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { getTwilioAccount } from "@/lib/actions/twilio";
 
 export default async function TwilioSettingsPage() {
+  const session = await auth();
+  if (session?.user?.role !== "owner") {
+    return <RestrictedSettingsPage crumbs={["Accounts", "Twilio"]} requiredRole="owner" />;
+  }
+
   const account = await getTwilioAccount();
 
   return (

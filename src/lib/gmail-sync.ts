@@ -8,10 +8,10 @@ function directionFromLabels(labelIds: string[]): "sent" | "received" {
   return labelIds.includes("SENT") ? "sent" : "received";
 }
 
-export async function syncGmailThread(userId: string, gmailThreadId: string, personId: string) {
+export async function syncGmailThread(userId: string, gmailThreadId: string, personId: string, workspaceId: string) {
   const messages = await fetchThreadMessages(userId, gmailThreadId);
   const existing = await db.email.findMany({
-    where: { gmailThreadId },
+    where: { workspaceId, gmailThreadId },
     select: { gmailMessageId: true },
   });
   const existingIds = new Set(existing.map((e) => e.gmailMessageId));
@@ -23,7 +23,7 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
   const threadOpportunityIds = newMessages.length
     ? (
         await db.emailOpportunity.findMany({
-          where: { email: { gmailThreadId } },
+          where: { workspaceId, email: { gmailThreadId } },
           select: { opportunityId: true },
           distinct: ["opportunityId"],
         })
@@ -34,6 +34,7 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
     const direction = directionFromLabels(m.labelIds);
     const email = await db.email.create({
       data: {
+        workspaceId,
         gmailMessageId: m.gmailMessageId,
         gmailThreadId: m.gmailThreadId,
         messageIdHeader: m.messageIdHeader,
@@ -47,17 +48,18 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
         sentAt: m.internalDate,
         personId,
         opportunities: threadOpportunityIds.length
-          ? { createMany: { data: threadOpportunityIds.map((opportunityId) => ({ opportunityId })) } }
+          ? { createMany: { data: threadOpportunityIds.map((opportunityId) => ({ workspaceId, opportunityId })) } }
           : undefined,
       },
     });
 
     if (direction === "received") {
-      const person = await db.person.findUnique({ where: { id: personId } });
+      const person = await db.person.findUnique({ where: { id: personId, workspaceId } });
       const personName = person ? [person.firstName, person.lastName].filter(Boolean).join(" ") : m.from;
 
       const notification = await db.notification.create({
         data: {
+          workspaceId,
           userId,
           kind: "email_reply",
           title: `New reply from ${personName}`,
@@ -67,16 +69,16 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
       });
 
       await publishNotification(userId, notification);
-      await sendReplyEmailNotification({ personId, subject: m.subject });
+      await sendReplyEmailNotification({ personId, subject: m.subject, workspaceId });
     }
   }
 
   return newMessages.length;
 }
 
-export async function syncPersonEmailThreads(userId: string, personId: string) {
+export async function syncPersonEmailThreads(userId: string, personId: string, workspaceId: string) {
   const threadIds = await db.email.findMany({
-    where: { personId, gmailThreadId: { not: null } },
+    where: { workspaceId, personId, gmailThreadId: { not: null } },
     select: { gmailThreadId: true },
     distinct: ["gmailThreadId"],
   });
@@ -84,7 +86,7 @@ export async function syncPersonEmailThreads(userId: string, personId: string) {
   let total = 0;
   for (const { gmailThreadId } of threadIds) {
     if (!gmailThreadId) continue;
-    total += await syncGmailThread(userId, gmailThreadId, personId);
+    total += await syncGmailThread(userId, gmailThreadId, personId, workspaceId);
   }
   return total;
 }
@@ -101,15 +103,18 @@ export async function runGmailReplySync() {
     const accounts = await db.account.findMany({ where: { provider: "google" } });
 
     for (const account of accounts) {
+      // Not scoped by workspaceId here — this cron job runs globally across every workspace's
+      // connected Gmail accounts, same as runImapPollAll. Each Person carries its own
+      // workspaceId, which is what actually scopes the sync/create calls below.
       const people = await db.email.findMany({
         where: { senderId: account.userId, gmailThreadId: { not: null }, personId: { not: null } },
-        select: { personId: true },
+        select: { personId: true, workspaceId: true },
         distinct: ["personId"],
       });
 
-      for (const { personId } of people) {
+      for (const { personId, workspaceId } of people) {
         if (!personId) continue;
-        emailsFound += await syncPersonEmailThreads(account.userId, personId);
+        emailsFound += await syncPersonEmailThreads(account.userId, personId, workspaceId);
       }
     }
 

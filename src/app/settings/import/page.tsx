@@ -1,7 +1,14 @@
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { ImportPanel } from "@/components/import-panel";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 
-export default function ImportPage() {
+export default async function ImportPage() {
+  const session = await auth();
+  if (session?.user?.role !== "owner" && session?.user?.role !== "admin") {
+    return <RestrictedSettingsPage crumbs={["Workspace", "Import"]} requiredRole="admin" />;
+  }
+
   return (
     <>
       <SettingsHeader crumbs={["Workspace", "Import"]} />

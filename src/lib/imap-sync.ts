@@ -2,6 +2,7 @@ import { ImapFlow, type MessageStructureObject, type SearchObject, type FetchMes
 import { db } from "@/lib/db";
 import { publishNotification } from "@/lib/redis";
 import { sendReplyEmailNotification } from "@/lib/reply-notification";
+import { decrypt } from "@/lib/encryption";
 import type { MailboxAccount } from "@prisma/client";
 
 function findBodyPart(node: MessageStructureObject, wantType: "text/html" | "text/plain"): MessageStructureObject | null {
@@ -90,11 +91,12 @@ async function saveMessage(
 
   const fromAddress = message.envelope?.from?.[0]?.address ?? "";
   const person = fromAddress
-    ? await db.person.findFirst({ where: { email: { equals: fromAddress, mode: "insensitive" } } })
+    ? await db.person.findFirst({ where: { workspaceId: account.workspaceId, deletedAt: null, email: { equals: fromAddress, mode: "insensitive" } } })
     : null;
 
   const email = await db.email.create({
     data: {
+      workspaceId: account.workspaceId,
       mailboxAccountId: account.id,
       imapUid: message.uid,
       messageIdHeader: message.envelope?.messageId ?? undefined,
@@ -118,6 +120,7 @@ async function saveMessage(
 
     const notification = await db.notification.create({
       data: {
+        workspaceId: account.workspaceId,
         userId: account.createdById,
         kind: "email_reply",
         title: `New reply from ${senderLabel}`,
@@ -129,7 +132,7 @@ async function saveMessage(
     await publishNotification(account.createdById, notification);
   }
 
-  await sendReplyEmailNotification({ personId: person?.id ?? null, subject: email.subject });
+  await sendReplyEmailNotification({ personId: person?.id ?? null, subject: email.subject, workspaceId: account.workspaceId });
 
   // Save progress after every message, not just at the end — so a slow mailbox or a
   // crashed/killed poll never loses ground and re-scans messages it already saved.
@@ -161,7 +164,7 @@ export async function pollMailboxAccount(account: MailboxAccount) {
     host: account.imapHost,
     port: account.imapPort,
     secure: account.imapPort === 993,
-    auth: { user: account.username, pass: account.password },
+    auth: { user: account.username, pass: decrypt(account.password) },
     logger: false,
     connectionTimeout: 10_000,
   });
@@ -176,7 +179,7 @@ export async function pollMailboxAccount(account: MailboxAccount) {
       // Only known CRM contacts — these mailboxes carry heavy daily warmup traffic (automated
       // sends between accounts to keep deliverability up), so an unscoped SINCE search matches
       // thousands of irrelevant messages. Scoping FROM to CRM contacts keeps this fast.
-      const crmEmails = (await db.person.findMany({ where: { email: { not: null } }, select: { email: true } }))
+      const crmEmails = (await db.person.findMany({ where: { workspaceId: account.workspaceId, deletedAt: null, email: { not: null } }, select: { email: true } }))
         .map((p) => p.email)
         .filter((e): e is string => !!e);
 

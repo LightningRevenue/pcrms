@@ -3,9 +3,15 @@ import { SettingsHeader } from "@/components/settings-header";
 import { GoogleIcon } from "@/components/google-icon";
 import { BlocklistForm } from "@/components/blocklist-form";
 import { getConnectedGoogleAccount } from "@/lib/google-account";
+import { signIn } from "@/lib/auth";
 
-export default async function EmailsPage() {
+export default async function EmailsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const account = await getConnectedGoogleAccount();
+  const { error } = await searchParams;
 
   return (
     <>
@@ -14,6 +20,12 @@ export default async function EmailsPage() {
         <section>
           <h2 className="text-[13px] font-semibold">Connected accounts</h2>
           <p className="text-[12px] text-subtle mt-1">Manage your internet accounts.</p>
+
+          {error === "CantConnect" && (
+            <p className="text-[13px] text-red-500 bg-red-500/10 rounded-md px-3 py-2 mt-3">
+              You can&apos;t connect with this email address.
+            </p>
+          )}
 
           <table className="w-full mt-4 text-left">
             <thead>
@@ -59,10 +71,20 @@ export default async function EmailsPage() {
           </table>
 
           <div className="flex justify-end mt-3">
-            <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors">
-              <Plus size={14} strokeWidth={1.75} />
-              Add account
-            </button>
+            <form
+              action={async () => {
+                "use server";
+                await signIn("google", { redirectTo: "/settings/accounts/emails" });
+              }}
+            >
+              <button
+                type="submit"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+              >
+                <Plus size={14} strokeWidth={1.75} />
+                Add account
+              </button>
+            </form>
           </div>
         </section>
 

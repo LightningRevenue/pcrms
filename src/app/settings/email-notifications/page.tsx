@@ -1,8 +1,15 @@
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { NotificationInboxManager } from "@/components/notification-inbox-manager";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { getNotificationInboxOptions } from "@/lib/actions/notification-inbox";
 
 export default async function EmailNotificationsPage() {
+  const session = await auth();
+  if (session?.user?.role !== "owner") {
+    return <RestrictedSettingsPage crumbs={["Workspace", "Email Notifications"]} requiredRole="owner" />;
+  }
+
   const { owner, mailboxes, selected, canEdit } = await getNotificationInboxOptions();
 
   return (
@@ -14,9 +21,6 @@ export default async function EmailNotificationsPage() {
           Choose the inbox internal CRM notifications (e.g. a teammate gets assigned something) send from.
           This applies to the whole workspace.
         </p>
-        {!canEdit && (
-          <p className="text-[12px] text-subtle mt-2">Only the workspace owner can change this setting.</p>
-        )}
 
         <h2 className="text-[13px] font-semibold mt-8">Selected Inbox</h2>
         <NotificationInboxManager owner={owner} mailboxes={mailboxes} selected={selected} canEdit={canEdit} />

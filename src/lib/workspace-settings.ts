@@ -10,17 +10,35 @@ export const SETTING_KEYS = {
   notificationInbox: "notification_inbox",
 } as const;
 
-export async function getSetting(key: string) {
-  const row = await db.workspaceSetting.findUnique({ where: { key } });
+// workspaceId is omitted for the genuinely global keys (app_base_url, tracking_domain,
+// allowed_email_domain); pass it for per-workspace keys (notification_inbox). Prisma's
+// compound-unique input can't express a NULL workspaceId (its generated type requires
+// `workspaceId: string`, even though the column itself is nullable — a Prisma limitation
+// with @@unique over optional fields), so the null/global case has to go through
+// findFirst/a manual create-or-update instead of workspaceId_key directly.
+export async function getSetting(key: string, workspaceId?: string | null) {
+  const row = workspaceId
+    ? await db.workspaceSetting.findUnique({ where: { workspaceId_key: { workspaceId, key } } })
+    : await db.workspaceSetting.findFirst({ where: { workspaceId: null, key } });
   return row?.value ?? null;
 }
 
-export async function setSetting(key: string, value: string) {
-  await db.workspaceSetting.upsert({
-    where: { key },
-    create: { key, value },
-    update: { value },
-  });
+export async function setSetting(key: string, value: string, workspaceId?: string | null) {
+  if (workspaceId) {
+    await db.workspaceSetting.upsert({
+      where: { workspaceId_key: { workspaceId, key } },
+      create: { key, value, workspaceId },
+      update: { value },
+    });
+    return;
+  }
+
+  const existing = await db.workspaceSetting.findFirst({ where: { workspaceId: null, key } });
+  if (existing) {
+    await db.workspaceSetting.update({ where: { id: existing.id }, data: { value } });
+  } else {
+    await db.workspaceSetting.create({ data: { key, value } });
+  }
 }
 
 async function resolveConfiguredBaseUrl() {

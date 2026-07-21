@@ -1,5 +1,6 @@
 "use server";
 
+import { requireWorkspace, personVisibilityFilter, companyVisibilityFilter, opportunityVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 function startOfDay(d: Date) {
@@ -15,17 +16,20 @@ function daysAgo(n: number) {
 }
 
 export async function getDashboardStats() {
+  const ctx = await requireWorkspace();
+  const { workspaceId } = ctx;
   const today = startOfDay(new Date());
   const tomorrow = daysAgo(-1);
   const weekAgo = daysAgo(6);
 
-  const wonStages = await db.pipelineStage.findMany({ where: { outcome: "won" }, select: { label: true } });
+  const wonStages = await db.pipelineStage.findMany({ where: { workspaceId, outcome: "won" }, select: { label: true } });
   const wonLabels = wonStages.map((s) => s.label);
 
   const [newLeadsToday, contactedActivities, dealsWonThisWeek, pipelineOpenValue] = await Promise.all([
-    db.person.count({ where: { createdAt: { gte: today, lt: tomorrow } } }),
+    db.person.count({ where: { workspaceId, createdAt: { gte: today, lt: tomorrow }, ...personVisibilityFilter(ctx) } }),
     db.activity.findMany({
       where: {
+        workspaceId,
         entityType: "person",
         kind: { in: ["email_sent", "task_completed"] },
         createdAt: { gte: today, lt: tomorrow },
@@ -34,11 +38,17 @@ export async function getDashboardStats() {
       distinct: ["entityId"],
     }),
     wonLabels.length
-      ? db.opportunity.count({ where: { stage: { in: wonLabels }, closeDate: { gte: weekAgo } } })
+      ? db.opportunity.count({
+          where: { workspaceId, stage: { in: wonLabels }, closeDate: { gte: weekAgo }, ...opportunityVisibilityFilter(ctx) },
+        })
       : 0,
     db.opportunity.aggregate({
       _sum: { value: true },
-      where: wonLabels.length ? { stage: { notIn: wonLabels } } : {},
+      where: {
+        workspaceId,
+        ...(wonLabels.length ? { stage: { notIn: wonLabels } } : {}),
+        ...opportunityVisibilityFilter(ctx),
+      },
     }),
   ]);
 
@@ -51,9 +61,10 @@ export async function getDashboardStats() {
 }
 
 export async function getNewLeadsTrend() {
+  const ctx = await requireWorkspace();
   const days = Array.from({ length: 7 }, (_, i) => daysAgo(6 - i));
   const people = await db.person.findMany({
-    where: { createdAt: { gte: days[0] } },
+    where: { workspaceId: ctx.workspaceId, createdAt: { gte: days[0] }, ...personVisibilityFilter(ctx) },
     select: { createdAt: true },
   });
 
@@ -66,7 +77,10 @@ export async function getNewLeadsTrend() {
 }
 
 export async function getRecentActivity(limit = 8) {
+  const ctx = await requireWorkspace();
+  const { workspaceId } = ctx;
   const activities = await db.activity.findMany({
+    where: { workspaceId },
     orderBy: { createdAt: "desc" },
     take: limit,
     include: { actor: true },
@@ -77,9 +91,11 @@ export async function getRecentActivity(limit = 8) {
   const opportunityIds = activities.filter((a) => a.entityType === "opportunity").map((a) => a.entityId);
 
   const [people, companies, opportunities] = await Promise.all([
-    personIds.length ? db.person.findMany({ where: { id: { in: personIds } } }) : [],
-    companyIds.length ? db.company.findMany({ where: { id: { in: companyIds } } }) : [],
-    opportunityIds.length ? db.opportunity.findMany({ where: { id: { in: opportunityIds } } }) : [],
+    personIds.length ? db.person.findMany({ where: { workspaceId, id: { in: personIds }, ...personVisibilityFilter(ctx) } }) : [],
+    companyIds.length ? db.company.findMany({ where: { workspaceId, id: { in: companyIds }, ...companyVisibilityFilter(ctx) } }) : [],
+    opportunityIds.length
+      ? db.opportunity.findMany({ where: { workspaceId, id: { in: opportunityIds }, ...opportunityVisibilityFilter(ctx) } })
+      : [],
   ]);
 
   const personMap = new Map(people.map((p) => [p.id, p]));

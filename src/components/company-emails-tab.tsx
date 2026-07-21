@@ -13,6 +13,7 @@ type CompanyEmail = Email & {
   person: Person;
   opens: EmailOpen[];
   opportunities: (EmailOpportunity & { opportunity: Opportunity })[];
+  campaignMember?: { campaign: { id: string; name: string } } | null;
 };
 
 export function CompanyEmailsTab({ emails }: { emails: CompanyEmail[] }) {
@@ -39,6 +40,14 @@ export function CompanyEmailsTab({ emails }: { emails: CompanyEmail[] }) {
                 >
                   {email.direction === "sent" ? "Sent" : "Received"}
                 </span>
+                {email.campaignMember?.campaign && (
+                  <span
+                    className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-violet-500 text-white shrink-0"
+                    title={`Sent from campaign: ${email.campaignMember.campaign.name}`}
+                  >
+                    Marketing
+                  </span>
+                )}
                 <span className="text-[13px] font-medium truncate flex-1 min-w-0">{email.subject}</span>
                 <span className="text-[11px] text-subtle shrink-0">{formatDate(email.sentAt)}</span>
               </div>

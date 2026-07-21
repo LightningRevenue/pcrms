@@ -11,6 +11,7 @@ import { isFavorited } from "@/lib/actions/favorites";
 import { listMyMailboxOptions } from "@/lib/actions/mailbox-preferences";
 import { listListsForEntity } from "@/lib/actions/lists";
 import { listMembers } from "@/lib/actions/members";
+import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 
 export default async function ContactDetailPage({
   params,
@@ -18,34 +19,37 @@ export default async function ContactDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const ctx = await requireWorkspace();
+  const { workspaceId } = ctx;
 
   const [people, contact, activity, emails, customFields, tasks, notes, opportunities, stages, sequenceEnrollments, favorited, mailboxes, lists, users, calls] = await Promise.all([
-    db.person.findMany({ select: { id: true }, orderBy: { createdAt: "desc" } }),
+    db.person.findMany({ where: { workspaceId, ...personVisibilityFilter(ctx) }, select: { id: true }, orderBy: { createdAt: "desc" } }),
     db.person.findUnique({
-      where: { id },
+      where: { id, workspaceId, ...personVisibilityFilter(ctx) },
       include: { company: true, createdBy: true, owner: true, importBatch: true },
     }),
     db.activity.findMany({
-      where: { entityType: "person", entityId: id },
+      where: { workspaceId, entityType: "person", entityId: id },
       include: { actor: true },
       orderBy: { createdAt: "desc" },
     }),
     db.email.findMany({
-      where: { personId: id },
+      where: { workspaceId, personId: id },
       orderBy: { sentAt: "desc" },
       include: {
         opens: { orderBy: { openedAt: "desc" } },
         opportunities: { include: { opportunity: true } },
+        campaignMember: { select: { campaign: { select: { id: true, name: true } } } },
       },
     }),
     getCustomFieldValues("person", id),
     db.task.findMany({
-      where: { personId: id },
+      where: { workspaceId, personId: id },
       orderBy: [{ done: "asc" }, { dueAt: "asc" }],
       include: { opportunities: { include: { opportunity: true } } },
     }),
     db.note.findMany({
-      where: { personId: id },
+      where: { workspaceId, personId: id },
       orderBy: { createdAt: "desc" },
       include: { createdBy: true, opportunities: { include: { opportunity: true } } },
     }),
@@ -57,7 +61,7 @@ export default async function ContactDetailPage({
     listListsForEntity("person", id),
     listMembers(),
     db.call.findMany({
-      where: { personId: id },
+      where: { workspaceId, personId: id },
       orderBy: { startedAt: "desc" },
       include: { createdBy: true },
     }),

@@ -17,6 +17,7 @@ export async function GET(
     if (email) {
       await db.emailOpen.create({
         data: {
+          workspaceId: email.workspaceId,
           emailId,
           ip: request.headers.get("x-forwarded-for") ?? undefined,
           userAgent: request.headers.get("user-agent") ?? undefined,

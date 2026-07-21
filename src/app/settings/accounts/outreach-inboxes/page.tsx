@@ -1,8 +1,15 @@
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { MailboxAccountsManager } from "@/components/mailbox-accounts-manager";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { listMailboxAccounts } from "@/lib/actions/mailbox-accounts";
 
 export default async function OutreachInboxesPage() {
+  const session = await auth();
+  if (session?.user?.role !== "owner") {
+    return <RestrictedSettingsPage crumbs={["Accounts", "Outreach Inboxes"]} requiredRole="owner" />;
+  }
+
   const accounts = await listMailboxAccounts();
 
   return (

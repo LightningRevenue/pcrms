@@ -2,16 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import type { TriggerType } from "@/lib/workflow-triggers";
 
 export async function createWorkflow() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const workflow = await db.workflow.create({
-    data: { name: "Untitled", createdById: session.user.id },
+    data: { workspaceId, name: "Untitled", createdById: userId },
   });
 
   revalidatePath("/workflows");
@@ -19,11 +18,10 @@ export async function createWorkflow() {
 }
 
 export async function setWorkflowTrigger(workflowId: string, triggerType: TriggerType) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   await db.workflow.update({
-    where: { id: workflowId },
+    where: { id: workflowId, workspaceId },
     data: { triggerType },
   });
 
@@ -31,13 +29,12 @@ export async function setWorkflowTrigger(workflowId: string, triggerType: Trigge
 }
 
 export async function renameWorkflow(workflowId: string, name: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   const trimmed = name.trim();
 
   await db.workflow.update({
-    where: { id: workflowId },
+    where: { id: workflowId, workspaceId },
     data: { name: trimmed || "Untitled" },
   });
 
@@ -46,10 +43,9 @@ export async function renameWorkflow(workflowId: string, name: string) {
 }
 
 export async function discardWorkflow(workflowId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.workflow.delete({ where: { id: workflowId } });
+  await db.workflow.delete({ where: { id: workflowId, workspaceId } });
 
   revalidatePath("/workflows");
   redirect("/workflows");

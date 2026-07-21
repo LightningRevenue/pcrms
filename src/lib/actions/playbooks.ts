@@ -1,19 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export async function listPlaybooks() {
+  const { workspaceId } = await requireWorkspace();
   return db.playbook.findMany({
+    where: { workspaceId },
     orderBy: { updatedAt: "desc" },
     include: { createdBy: true, sections: { orderBy: { position: "asc" } } },
   });
 }
 
 export async function getPlaybook(id: string) {
+  const { workspaceId } = await requireWorkspace();
   return db.playbook.findUnique({
-    where: { id },
+    where: { id, workspaceId },
     include: { sections: { orderBy: { position: "asc" } } },
   });
 }
@@ -22,18 +25,18 @@ export type PlaybookSectionInput = { title: string; body: string };
 export type PlaybookInput = { title: string; sections: PlaybookSectionInput[] };
 
 export async function createPlaybook(input: PlaybookInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const title = input.title.trim();
   if (!title) throw new Error("Title is required");
 
   const playbook = await db.playbook.create({
     data: {
+      workspaceId,
       title,
-      createdById: session.user.id,
+      createdById: userId,
       sections: {
-        create: input.sections.map((s, i) => ({ title: s.title.trim(), body: s.body, position: i })),
+        create: input.sections.map((s, i) => ({ workspaceId, title: s.title.trim(), body: s.body, position: i })),
       },
     },
   });
@@ -43,20 +46,19 @@ export async function createPlaybook(input: PlaybookInput) {
 }
 
 export async function updatePlaybook(id: string, input: PlaybookInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   const title = input.title.trim();
   if (!title) throw new Error("Title is required");
 
   await db.$transaction([
-    db.playbookSection.deleteMany({ where: { playbookId: id } }),
+    db.playbookSection.deleteMany({ where: { workspaceId, playbookId: id } }),
     db.playbook.update({
-      where: { id },
+      where: { id, workspaceId },
       data: {
         title,
         sections: {
-          create: input.sections.map((s, i) => ({ title: s.title.trim(), body: s.body, position: i })),
+          create: input.sections.map((s, i) => ({ workspaceId, title: s.title.trim(), body: s.body, position: i })),
         },
       },
     }),
@@ -66,9 +68,8 @@ export async function updatePlaybook(id: string, input: PlaybookInput) {
 }
 
 export async function deletePlaybook(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.playbook.delete({ where: { id } });
+  await db.playbook.delete({ where: { id, workspaceId } });
   revalidatePath("/settings/playbooks");
 }

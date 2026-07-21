@@ -41,6 +41,18 @@ export function WorkspaceSearch() {
   }, [query]);
 
   useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     function onClick(e: MouseEvent) {
       const target = e.target as Node;
@@ -79,6 +91,7 @@ export function WorkspaceSearch() {
           placeholder="Search"
           className="w-full bg-transparent outline-none placeholder:text-subtle text-foreground"
         />
+        <kbd className="shrink-0 rounded border border-border px-1 text-[10px] font-medium text-subtle">⌘K</kbd>
       </div>
 
       {open &&

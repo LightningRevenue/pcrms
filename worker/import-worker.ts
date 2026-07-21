@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import { db } from "@/lib/db";
@@ -14,10 +15,11 @@ async function main() {
     IMPORT_JOB_NAME,
     async (job) => {
       const result = await runImport(job.data);
-      const batch = await db.importBatch.findUniqueOrThrow({ where: { id: job.data.batchId } });
+      const batch = await db.importBatch.findUniqueOrThrow({ where: { id: job.data.batchId, workspaceId: job.data.workspaceId } });
 
       const notification = await db.notification.create({
         data: {
+          workspaceId: job.data.workspaceId,
           userId: job.data.userId,
           kind: "import_complete",
           title: `Import "${batch.name}" finished`,

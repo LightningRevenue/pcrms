@@ -39,7 +39,11 @@ export function OpportunityTabs({
   personEmail: string | null;
   contactName: string;
   tasks: TaskWithDeals[];
-  emails: (Email & { opens: EmailOpen[]; opportunities: (EmailOpportunity & { opportunity: Opportunity })[] })[];
+  emails: (Email & {
+    opens: EmailOpen[];
+    opportunities: (EmailOpportunity & { opportunity: Opportunity })[];
+    campaignMember?: { campaign: { id: string; name: string } } | null;
+  })[];
   notes: NoteWithDeals[];
   mailboxes: MailboxOption[];
 }) {

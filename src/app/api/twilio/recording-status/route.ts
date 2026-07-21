@@ -14,6 +14,8 @@ export async function POST(request: Request) {
   const recordingUrl = form.get("RecordingUrl")?.toString();
   const recordingDuration = form.get("RecordingDuration")?.toString();
 
+  // No session (Twilio webhook) — updateMany filtered by id alone is fine, callId is
+  // the Call's own cuid primary key, already unique with no cross-workspace ambiguity.
   await db.call.updateMany({
     where: { id: callId },
     data: {

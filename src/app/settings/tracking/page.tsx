@@ -1,8 +1,15 @@
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { TrackingSettingsForm } from "@/components/tracking-settings-form";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { getTrackingSettings } from "@/lib/actions/workspace-settings";
 
 export default async function TrackingSettingsPage() {
+  const session = await auth();
+  if (session?.user?.role !== "owner") {
+    return <RestrictedSettingsPage crumbs={["Workspace", "Email Tracking"]} requiredRole="owner" />;
+  }
+
   const { appBaseUrl, trackingDomain } = await getTrackingSettings();
 
   return (

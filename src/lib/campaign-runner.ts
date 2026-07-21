@@ -8,19 +8,20 @@ export async function runCampaignSendJob({ campaignMemberId, mailboxAccountId }:
     where: { id: campaignMemberId },
     include: { campaign: { include: { template: true } }, person: true },
   });
+  const { workspaceId } = member;
 
   // Recipient was removed, or the campaign's template changed after this job was queued.
   if (member.sendStatus !== "queued") return;
   if (!member.campaign.template) {
     await db.campaignMember.update({
-      where: { id: campaignMemberId },
+      where: { id: campaignMemberId, workspaceId },
       data: { sendStatus: "failed", sendError: "Campaign has no template selected" },
     });
     return;
   }
   if (!member.person.email) {
     await db.campaignMember.update({
-      where: { id: campaignMemberId },
+      where: { id: campaignMemberId, workspaceId },
       data: { sendStatus: "failed", sendError: "Contact has no email address" },
     });
     return;
@@ -33,6 +34,7 @@ export async function runCampaignSendJob({ campaignMemberId, mailboxAccountId }:
 
     await sendViaMailboxAccount({
       id: emailId,
+      workspaceId,
       mailboxAccountId,
       personId: member.personId,
       to: [member.person.email],
@@ -43,21 +45,21 @@ export async function runCampaignSendJob({ campaignMemberId, mailboxAccountId }:
       trackingPixelHtml,
     });
     await db.campaignMember.update({
-      where: { id: campaignMemberId },
+      where: { id: campaignMemberId, workspaceId },
       data: { sendStatus: "sent", sentAt: new Date() },
     });
   } catch (err) {
     await db.campaignMember.update({
-      where: { id: campaignMemberId },
+      where: { id: campaignMemberId, workspaceId },
       data: { sendStatus: "failed", sendError: err instanceof Error ? err.message : String(err) },
     });
     throw err;
   }
 
   const remaining = await db.campaignMember.count({
-    where: { campaignId: member.campaignId, sendStatus: { in: ["pending", "queued"] } },
+    where: { workspaceId, campaignId: member.campaignId, sendStatus: { in: ["pending", "queued"] } },
   });
   if (remaining === 0) {
-    await db.campaign.update({ where: { id: member.campaignId }, data: { status: "sent" } });
+    await db.campaign.update({ where: { id: member.campaignId, workspaceId }, data: { status: "sent" } });
   }
 }

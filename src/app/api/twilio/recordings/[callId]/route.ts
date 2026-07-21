@@ -12,12 +12,12 @@ import { getTwilioAccount } from "@/lib/actions/twilio";
 // other routes there, which are Twilio's own webhooks — this one checks the session itself.
 export async function GET(request: Request, { params }: { params: Promise<{ callId: string }> }) {
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.id || !session.user.workspaceId) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
   const { callId } = await params;
-  const call = await db.call.findUnique({ where: { id: callId } });
+  const call = await db.call.findUnique({ where: { id: callId, workspaceId: session.user.workspaceId } });
   if (!call?.recordingUrl) {
     return NextResponse.json({ error: "No recording for this call" }, { status: 404 });
   }

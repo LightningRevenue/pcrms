@@ -8,6 +8,7 @@ const CRON_JOB_NAME = "sequence-step-runner";
 async function executeStepRun(
   run: {
     id: string;
+    workspaceId: string;
     step: {
       id: string;
       type: string;
@@ -29,7 +30,7 @@ async function executeStepRun(
     };
   }
 ) {
-  const { step, enrollment } = run;
+  const { step, enrollment, workspaceId } = run;
   const personId = enrollment.personId;
   const actorId = enrollment.enrolledById;
 
@@ -44,8 +45,8 @@ async function executeStepRun(
     const rawBody = step.templateId ? step.template!.bodyHtml : step.bodyHtml ?? "";
 
     const [subject, bodyHtml] = await Promise.all([
-      interpolateForPerson(rawSubject, personId),
-      interpolateForPerson(rawBody, personId),
+      interpolateForPerson(rawSubject, personId, workspaceId),
+      interpolateForPerson(rawBody, personId, workspaceId),
     ]);
 
     const emailId = crypto.randomUUID();
@@ -63,6 +64,7 @@ async function executeStepRun(
     await db.email.create({
       data: {
         id: emailId,
+        workspaceId,
         gmailMessageId: sent.id,
         gmailThreadId: sent.threadId,
         messageIdHeader: sent.messageIdHeader ?? undefined,
@@ -77,11 +79,12 @@ async function executeStepRun(
     });
 
     await db.activity.create({
-      data: { entityType: "person", entityId: personId, kind: "email_sent", field: "Email", newValue: subject, actorId },
+      data: { workspaceId, entityType: "person", entityId: personId, kind: "email_sent", field: "Email", newValue: subject, actorId },
     });
   } else if (step.type === "task") {
     await db.task.create({
       data: {
+        workspaceId,
         title: step.taskTitle || "Follow up",
         description: step.taskDescription,
         type: step.taskType ?? "general",
@@ -92,14 +95,14 @@ async function executeStepRun(
     });
 
     await db.activity.create({
-      data: { entityType: "person", entityId: personId, kind: "task_created", field: "Task", newValue: step.taskTitle, actorId },
+      data: { workspaceId, entityType: "person", entityId: personId, kind: "task_created", field: "Task", newValue: step.taskTitle, actorId },
     });
   } else if (step.type === "note") {
-    const body = await interpolateForPerson(step.noteBody ?? "", personId);
-    await db.note.create({ data: { body, personId, createdById: actorId } });
+    const body = await interpolateForPerson(step.noteBody ?? "", personId, workspaceId);
+    await db.note.create({ data: { workspaceId, body, personId, createdById: actorId } });
 
     await db.activity.create({
-      data: { entityType: "person", entityId: personId, kind: "note_added", field: "Note", actorId },
+      data: { workspaceId, entityType: "person", entityId: personId, kind: "note_added", field: "Note", actorId },
     });
   }
 }
@@ -109,6 +112,9 @@ export async function runDueSequenceSteps() {
 
   let stepsExecuted = 0;
   try {
+    // Not scoped by workspaceId — this cron job runs globally across every workspace's due
+    // sequence steps, same pattern as runImapPollAll/runGmailReplySync. Each SequenceStepRun
+    // carries its own workspaceId (denormalized), which scopes the per-run writes below.
     const due = await db.sequenceStepRun.findMany({
       where: { status: "pending", scheduledFor: { lte: new Date() } },
       include: {
@@ -121,13 +127,13 @@ export async function runDueSequenceSteps() {
       try {
         await executeStepRun(dueRun);
         await db.sequenceStepRun.update({
-          where: { id: dueRun.id },
+          where: { id: dueRun.id, workspaceId: dueRun.workspaceId },
           data: { status: "sent", executedAt: new Date() },
         });
         stepsExecuted += 1;
       } catch (err) {
         await db.sequenceStepRun.update({
-          where: { id: dueRun.id },
+          where: { id: dueRun.id, workspaceId: dueRun.workspaceId },
           data: {
             status: "failed",
             executedAt: new Date(),
@@ -137,11 +143,11 @@ export async function runDueSequenceSteps() {
       }
 
       const remaining = await db.sequenceStepRun.count({
-        where: { enrollmentId: dueRun.enrollmentId, status: "pending" },
+        where: { workspaceId: dueRun.workspaceId, enrollmentId: dueRun.enrollmentId, status: "pending" },
       });
       if (remaining === 0) {
         await db.sequenceEnrollment.update({
-          where: { id: dueRun.enrollmentId },
+          where: { id: dueRun.enrollmentId, workspaceId: dueRun.workspaceId },
           data: { status: "completed", completedAt: new Date() },
         });
       }

@@ -1,5 +1,6 @@
 "use server";
 
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { PERSON_FIELD_LABELS, COMPANY_FIELD_LABELS } from "@/lib/field-labels";
 
@@ -9,9 +10,10 @@ const PERSON_TOKEN_FIELDS = ["firstName", "lastName", "email", "phone", "jobTitl
 const COMPANY_TOKEN_FIELDS = ["name", "domain", "address", "linkedin", "annualRevenue"] as const;
 
 export async function listTemplateVariables(): Promise<TemplateVariable[]> {
+  const { workspaceId } = await requireWorkspace();
   const [personCustom, companyCustom] = await Promise.all([
-    db.customFieldDefinition.findMany({ where: { objectType: "person" }, orderBy: { order: "asc" } }),
-    db.customFieldDefinition.findMany({ where: { objectType: "company" }, orderBy: { order: "asc" } }),
+    db.customFieldDefinition.findMany({ where: { workspaceId, objectType: "person" }, orderBy: { order: "asc" } }),
+    db.customFieldDefinition.findMany({ where: { workspaceId, objectType: "company" }, orderBy: { order: "asc" } }),
   ]);
 
   return [
@@ -22,18 +24,18 @@ export async function listTemplateVariables(): Promise<TemplateVariable[]> {
   ];
 }
 
-async function buildVariableMap(personId: string): Promise<Record<string, string>> {
-  const person = await db.person.findUnique({ where: { id: personId }, include: { company: true } });
+async function buildVariableMap(workspaceId: string, personId: string): Promise<Record<string, string>> {
+  const person = await db.person.findUnique({ where: { id: personId, workspaceId }, include: { company: true } });
   if (!person) return {};
 
   const [personCustom, companyCustom] = await Promise.all([
     db.customFieldValue.findMany({
-      where: { recordId: personId, definition: { objectType: "person" } },
+      where: { workspaceId, recordId: personId, definition: { objectType: "person" } },
       include: { definition: true },
     }),
     person.companyId
       ? db.customFieldValue.findMany({
-          where: { recordId: person.companyId, definition: { objectType: "company" } },
+          where: { workspaceId, recordId: person.companyId, definition: { objectType: "company" } },
           include: { definition: true },
         })
       : Promise.resolve([]),
@@ -49,7 +51,7 @@ async function buildVariableMap(personId: string): Promise<Record<string, string
 }
 
 // ponytail: unresolved tokens fall back to "" (matches how empty fields render elsewhere in the app)
-export async function interpolateForPerson(text: string, personId: string): Promise<string> {
-  const map = await buildVariableMap(personId);
+export async function interpolateForPerson(text: string, personId: string, workspaceId: string): Promise<string> {
+  const map = await buildVariableMap(workspaceId, personId);
   return text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, token) => map[token] ?? "");
 }

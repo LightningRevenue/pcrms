@@ -20,14 +20,19 @@ function escapeHtml(text: string) {
 // Notifies the owning teammate by email when a reply arrives on a contact (or, absent an
 // owner, the workspace owner) — separate from the in-app Notification row, which still fires
 // for whoever's logged in. Best-effort: a failure here should never break the mail sync itself.
-export async function sendReplyEmailNotification(opts: { personId: string | null; subject: string }) {
+export async function sendReplyEmailNotification(opts: { personId: string | null; subject: string; workspaceId: string }) {
   try {
     const person = opts.personId
-      ? await db.person.findUnique({ where: { id: opts.personId }, include: { owner: true } })
+      ? await db.person.findUnique({ where: { id: opts.personId, workspaceId: opts.workspaceId }, include: { owner: true } })
       : null;
 
-    const recipient =
-      person?.owner ?? (await db.user.findFirst({ orderBy: { id: "asc" }, select: { id: true, name: true, email: true } }));
+    const workspaceOwnerMember = person?.owner
+      ? null
+      : await db.workspaceMember.findFirst({
+          where: { workspaceId: opts.workspaceId, role: "owner" },
+          select: { user: { select: { id: true, name: true, email: true } } },
+        });
+    const recipient = person?.owner ?? workspaceOwnerMember?.user;
     if (!recipient?.email) return;
 
     const senderName = person ? [person.firstName, person.lastName].filter(Boolean).join(" ") : "someone new";
@@ -38,7 +43,8 @@ export async function sendReplyEmailNotification(opts: { personId: string | null
     await sendFromNotificationInbox(
       recipient.email,
       `New reply from ${senderName}`,
-      buildReplyEmailHtml({ senderName, subject: opts.subject, goToUrl, goToLabel })
+      buildReplyEmailHtml({ senderName, subject: opts.subject, goToUrl, goToLabel }),
+      opts.workspaceId
     );
   } catch {
     // ponytail: best-effort — the in-app Notification row is still the source of truth if this fails

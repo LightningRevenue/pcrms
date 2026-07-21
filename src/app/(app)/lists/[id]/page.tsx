@@ -4,6 +4,7 @@ import { getListCompanies, getListPeople, getListOpportunities } from "@/lib/act
 import { listNextTasksByPerson } from "@/lib/actions/tasks";
 import { listFieldDefinitions } from "@/lib/actions/custom-fields";
 import { ListDetailView } from "@/components/list-detail-view";
+import { requireWorkspace } from "@/lib/workspace";
 
 export default async function ListDetailPage({
   params,
@@ -11,7 +12,8 @@ export default async function ListDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const list = await db.list.findUnique({ where: { id }, include: { items: true } });
+  const { workspaceId } = await requireWorkspace();
+  const list = await db.list.findUnique({ where: { id, workspaceId }, include: { items: true } });
   if (!list) notFound();
 
   const entityIds = list.items.map((i) => i.entityId);
@@ -22,7 +24,7 @@ export default async function ListDetailPage({
       listFieldDefinitions("company"),
     ]);
     const lastActivity = await db.activity.findMany({
-      where: { entityType: "company", entityId: { in: companies.map((c) => c.id) } },
+      where: { workspaceId, entityType: "company", entityId: { in: companies.map((c) => c.id) } },
       orderBy: { createdAt: "desc" },
       distinct: ["entityId"],
     });
@@ -48,6 +50,7 @@ export default async function ListDetailPage({
     const [lastActivity, nextTasks] = await Promise.all([
       db.activity.findMany({
         where: {
+          workspaceId,
           entityType: "person",
           entityId: { in: people.map((p) => p.id) },
           kind: { not: "created" },

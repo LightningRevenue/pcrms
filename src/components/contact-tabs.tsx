@@ -50,7 +50,11 @@ export function ContactTabs({
   personId: string;
   personName: string;
   personEmail: string | null;
-  emails: (Email & { opens: EmailOpen[]; opportunities: (EmailOpportunity & { opportunity: Opportunity })[] })[];
+  emails: (Email & {
+    opens: EmailOpen[];
+    opportunities: (EmailOpportunity & { opportunity: Opportunity })[];
+    campaignMember?: { campaign: { id: string; name: string } } | null;
+  })[];
   tasks: (Task & { opportunities: (TaskOpportunity & { opportunity: Opportunity })[] })[];
   notes: (Note & { createdBy: User | null; opportunities: (NoteOpportunity & { opportunity: Opportunity })[] })[];
   opportunities: Opportunity[];

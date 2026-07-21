@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import { runImapPollAll } from "@/lib/imap-sync";

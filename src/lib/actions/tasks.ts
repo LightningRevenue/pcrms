@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export type TaskType = "call" | "email" | "event" | "meet" | "general";
@@ -18,16 +18,18 @@ export type CreateTaskInput = {
 };
 
 export async function listTasksForPerson(personId: string) {
+  const { workspaceId } = await requireWorkspace();
   return db.task.findMany({
-    where: { personId },
+    where: { workspaceId, personId },
     orderBy: [{ done: "asc" }, { dueAt: "asc" }],
   });
 }
 
 // One task per person: earliest not-done, or earliest not-done-and-undated last. Keyed by personId for O(1) lookup in the list view.
 export async function listNextTasksByPerson(personIds: string[]) {
+  const { workspaceId } = await requireWorkspace();
   const tasks = await db.task.findMany({
-    where: { personId: { in: personIds }, done: false },
+    where: { workspaceId, personId: { in: personIds }, done: false },
     orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
   });
 
@@ -39,56 +41,59 @@ export async function listNextTasksByPerson(personIds: string[]) {
 }
 
 export async function listTasksDueToday() {
+  const { workspaceId } = await requireWorkspace();
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
 
   return db.task.findMany({
-    where: { dueAt: { gte: start, lt: end } },
+    where: { workspaceId, dueAt: { gte: start, lt: end } },
     include: { person: true },
     orderBy: [{ done: "asc" }, { dueAt: "asc" }],
   });
 }
 
 export async function listTasksWithDueDate() {
+  const { workspaceId } = await requireWorkspace();
   return db.task.findMany({
-    where: { dueAt: { not: null } },
+    where: { workspaceId, dueAt: { not: null } },
     include: { person: { include: { company: true } } },
     orderBy: { dueAt: "asc" },
   });
 }
 
 export async function createTask(input: CreateTaskInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const title = input.title.trim();
   if (!title) throw new Error("Title is required");
 
   await db.task.create({
     data: {
+      workspaceId,
       title,
       description: input.description?.trim() || null,
       type: input.type,
       priority: input.priority,
       dueAt: input.due ? new Date(input.due) : null,
       personId: input.personId,
-      createdById: session.user.id,
+      createdById: userId,
       opportunities: input.opportunityIds?.length
-        ? { createMany: { data: input.opportunityIds.map((opportunityId) => ({ opportunityId })) } }
+        ? { createMany: { data: input.opportunityIds.map((opportunityId) => ({ workspaceId, opportunityId })) } }
         : undefined,
     },
   });
 
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: input.personId,
       kind: "task_created",
       field: "Task",
       newValue: title,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 
@@ -106,14 +111,13 @@ export type UpdateTaskInput = {
 };
 
 export async function updateTask(id: string, input: UpdateTaskInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   const title = input.title.trim();
   if (!title) throw new Error("Title is required");
 
   const task = await db.task.update({
-    where: { id },
+    where: { id, workspaceId },
     data: {
       title,
       description: input.description?.trim() || null,
@@ -129,22 +133,22 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
 }
 
 export async function toggleTask(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
-  const task = await db.task.findUniqueOrThrow({ where: { id } });
+  const task = await db.task.findUniqueOrThrow({ where: { id, workspaceId } });
   const done = !task.done;
-  await db.task.update({ where: { id }, data: { done } });
+  await db.task.update({ where: { id, workspaceId }, data: { done } });
 
   if (done) {
     await db.activity.create({
       data: {
+        workspaceId,
         entityType: "person",
         entityId: task.personId,
         kind: "task_completed",
         field: "Task",
         newValue: task.title,
-        actorId: session.user.id,
+        actorId: userId,
       },
     });
   }

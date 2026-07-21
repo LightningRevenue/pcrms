@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { ObjectFieldsManager } from "@/components/object-fields-manager";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { listFieldDefinitions, type ObjectType } from "@/lib/actions/custom-fields";
 
 const OBJECT_LABELS: Record<ObjectType, string> = {
@@ -20,6 +22,11 @@ export default async function ObjectFieldsPage({
 }) {
   const { object } = await params;
   if (object !== "company" && object !== "person") notFound();
+
+  const session = await auth();
+  if (session?.user?.role !== "owner" && session?.user?.role !== "admin") {
+    return <RestrictedSettingsPage crumbs={["Workspace", "Data model", OBJECT_LABELS[object]]} requiredRole="admin" />;
+  }
 
   const objectType = object as ObjectType;
   const customFields = await listFieldDefinitions(objectType);

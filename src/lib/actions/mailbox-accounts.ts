@@ -4,18 +4,22 @@ import { revalidatePath } from "next/cache";
 import nodemailer from "nodemailer";
 import { ImapFlow } from "imapflow";
 import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { parseCsv } from "@/lib/csv";
 import { interpolateForPerson } from "@/lib/template-variables";
+import { encrypt, decrypt } from "@/lib/encryption";
 import type { MailboxAccount } from "@prisma/client";
 
 export async function listMailboxAccounts() {
-  return db.mailboxAccount.findMany({ orderBy: { createdAt: "asc" } });
+  const { workspaceId } = await requireWorkspace();
+  return db.mailboxAccount.findMany({ where: { workspaceId }, orderBy: { createdAt: "asc" } });
 }
 
 export async function listActiveMailboxAccounts() {
+  const { workspaceId } = await requireWorkspace();
   return db.mailboxAccount.findMany({
-    where: { active: true },
+    where: { workspaceId, active: true },
     orderBy: { createdAt: "asc" },
     select: { id: true, label: true, email: true },
   });
@@ -33,8 +37,7 @@ export type MailboxAccountInput = {
 };
 
 export async function createMailboxAccount(input: MailboxAccountInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const label = input.label.trim();
   const email = input.email.trim();
@@ -47,6 +50,7 @@ export async function createMailboxAccount(input: MailboxAccountInput) {
 
   const account = await db.mailboxAccount.create({
     data: {
+      workspaceId,
       label,
       email,
       smtpHost,
@@ -54,8 +58,8 @@ export async function createMailboxAccount(input: MailboxAccountInput) {
       imapHost,
       imapPort: input.imapPort,
       username,
-      password: input.password,
-      createdById: session.user.id,
+      password: encrypt(input.password),
+      createdById: userId,
     },
   });
 
@@ -64,18 +68,16 @@ export async function createMailboxAccount(input: MailboxAccountInput) {
 }
 
 export async function toggleMailboxAccount(id: string, active: boolean) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.mailboxAccount.update({ where: { id }, data: { active } });
+  await db.mailboxAccount.update({ where: { id, workspaceId }, data: { active } });
   revalidatePath("/settings/accounts/outreach-inboxes");
 }
 
 export async function deleteMailboxAccount(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.mailboxAccount.delete({ where: { id } });
+  await db.mailboxAccount.delete({ where: { id, workspaceId } });
   revalidatePath("/settings/accounts/outreach-inboxes");
 }
 
@@ -83,8 +85,7 @@ export async function deleteMailboxAccount(id: string) {
 // IMAP Password, IMAP Host, IMAP Port, SMTP Username, SMTP Password, SMTP Host, SMTP Port
 // (Daily Limit / Warmup columns are ignored — no sending rules yet).
 export async function importMailboxAccountsCsv(csvText: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const rows = parseCsv(csvText);
   const [header, ...dataRows] = rows;
@@ -108,7 +109,7 @@ export async function importMailboxAccountsCsv(csvText: string) {
     throw new Error("CSV is missing required columns (Email, SMTP Host, IMAP Host)");
   }
 
-  const existing = new Set((await db.mailboxAccount.findMany({ select: { email: true } })).map((a) => a.email));
+  const existing = new Set((await db.mailboxAccount.findMany({ where: { workspaceId }, select: { email: true } })).map((a) => a.email));
 
   let imported = 0;
   let skipped = 0;
@@ -126,6 +127,7 @@ export async function importMailboxAccountsCsv(csvText: string) {
 
     await db.mailboxAccount.create({
       data: {
+        workspaceId,
         label,
         email,
         smtpHost: row[idx.smtpHost]?.trim() ?? "",
@@ -133,8 +135,8 @@ export async function importMailboxAccountsCsv(csvText: string) {
         imapHost: row[idx.imapHost]?.trim() ?? "",
         imapPort: Number(row[idx.imapPort]) || 993,
         username: (idx.smtpUser !== -1 ? row[idx.smtpUser]?.trim() : "") || email,
-        password: (idx.smtpPass !== -1 ? row[idx.smtpPass] : row[idx.imapPass]) ?? "",
-        createdById: session.user.id,
+        password: encrypt((idx.smtpPass !== -1 ? row[idx.smtpPass] : row[idx.imapPass]) ?? ""),
+        createdById: userId,
       },
     });
     existing.add(email);
@@ -151,7 +153,7 @@ async function checkSmtp(account: MailboxAccount): Promise<{ status: "ok" | "err
       host: account.smtpHost,
       port: account.smtpPort,
       secure: account.smtpPort === 465,
-      auth: { user: account.username, pass: account.password },
+      auth: { user: account.username, pass: decrypt(account.password) },
       connectionTimeout: 10_000,
     });
     await transport.verify();
@@ -167,7 +169,7 @@ async function checkImap(account: MailboxAccount): Promise<{ status: "ok" | "err
     host: account.imapHost,
     port: account.imapPort,
     secure: account.imapPort === 993,
-    auth: { user: account.username, pass: account.password },
+    auth: { user: account.username, pass: decrypt(account.password) },
     logger: false,
     connectionTimeout: 10_000,
   });
@@ -182,14 +184,13 @@ async function checkImap(account: MailboxAccount): Promise<{ status: "ok" | "err
 }
 
 export async function checkMailboxAccount(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id } });
+  const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id, workspaceId } });
   const [smtp, imap] = await Promise.all([checkSmtp(account), checkImap(account)]);
 
   const updated = await db.mailboxAccount.update({
-    where: { id },
+    where: { id, workspaceId },
     data: {
       smtpStatus: smtp.status,
       smtpError: smtp.error,
@@ -204,10 +205,9 @@ export async function checkMailboxAccount(id: string) {
 }
 
 export async function checkAllMailboxAccounts() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  const accounts = await db.mailboxAccount.findMany({ select: { id: true } });
+  const accounts = await db.mailboxAccount.findMany({ where: { workspaceId }, select: { id: true } });
   const results = await Promise.all(accounts.map(({ id }) => checkMailboxAccount(id)));
   revalidatePath("/settings/accounts/outreach-inboxes");
   return results;
@@ -229,6 +229,10 @@ export type SendViaMailboxAccountInput = {
   // created below. Same approach as sequence-runner.ts's Gmail sends.
   trackingPixelHtml?: string;
   id?: string;
+  // Background-worker callers (campaign-runner, sequence-runner) already know the
+  // workspaceId of the record they're operating on and pass it explicitly — this
+  // function has no request session to derive one from itself.
+  workspaceId: string;
 };
 
 // Core SMTP send, with no auth() dependency — safe to call from a background worker
@@ -237,15 +241,15 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
   if (input.to.length === 0) throw new Error("Add at least one recipient");
   if (!input.subject.trim()) throw new Error("Add a subject");
 
-  const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id: input.mailboxAccountId } });
+  const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id: input.mailboxAccountId, workspaceId: input.workspaceId } });
 
   const replyTo = input.replyToEmailId
-    ? await db.email.findUnique({ where: { id: input.replyToEmailId } })
+    ? await db.email.findUnique({ where: { id: input.replyToEmailId, workspaceId: input.workspaceId } })
     : null;
 
   const [subject, interpolatedBody] = await Promise.all([
-    interpolateForPerson(input.subject, input.personId),
-    interpolateForPerson(input.bodyHtml, input.personId),
+    interpolateForPerson(input.subject, input.personId, input.workspaceId),
+    interpolateForPerson(input.bodyHtml, input.personId, input.workspaceId),
   ]);
   const bodyHtml = interpolatedBody + (input.trackingPixelHtml ?? "");
 
@@ -255,7 +259,7 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     host: account.smtpHost,
     port: account.smtpPort,
     secure: account.smtpPort === 465,
-    auth: { user: account.username, pass: account.password },
+    auth: { user: account.username, pass: decrypt(account.password) },
   });
 
   const sent = await transport.sendMail({
@@ -271,6 +275,7 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
   const email = await db.email.create({
     data: {
       id: input.id,
+      workspaceId: input.workspaceId,
       messageIdHeader: sent.messageId,
       inReplyTo: replyTo?.messageIdHeader ?? undefined,
       direction: "sent",
@@ -285,13 +290,14 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
       mailboxAccountId: account.id,
       campaignMemberId: input.campaignMemberId,
       opportunities: input.opportunityIds?.length
-        ? { createMany: { data: input.opportunityIds.map((opportunityId) => ({ opportunityId })) } }
+        ? { createMany: { data: input.opportunityIds.map((opportunityId) => ({ workspaceId: input.workspaceId, opportunityId })) } }
         : undefined,
     },
   });
 
   await db.activity.create({
     data: {
+      workspaceId: input.workspaceId,
       entityType: "person",
       entityId: input.personId,
       kind: "email_sent",
@@ -317,11 +323,13 @@ export type SendViaSmtpInput = {
 export async function sendViaSmtp(input: SendViaSmtpInput) {
   const session = await auth();
   if (!session?.user?.id || !session.user.email) throw new Error("Not authenticated");
+  if (!session.user.workspaceId) throw new Error("No workspace");
 
   // CC the user's own connected Gmail on outreach-mailbox sends so they keep visibility
   // in their normal inbox — replies still land only at the outreach mailbox, never Gmail.
   const email = await sendViaMailboxAccount({
     ...input,
+    workspaceId: session.user.workspaceId,
     senderId: session.user.id,
     bcc: [session.user.email],
   });

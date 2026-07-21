@@ -78,7 +78,7 @@ function ListPicker({
 }: {
   entityType: ListEntityType;
   entityId: string;
-  onChange: (list: { id: string; name: string; createdAt: Date; entityType: string; createdById: string | null }, inList: boolean) => void;
+  onChange: (list: { id: string; name: string; createdAt: Date; entityType: string; createdById: string | null; workspaceId: string }, inList: boolean) => void;
 }) {
   const [available, setAvailable] = useState<AvailableList[]>([]);
   const [pending, startTransition] = useTransition();
@@ -91,7 +91,7 @@ function ListPicker({
   function toggle(list: AvailableList) {
     const nextInList = !list.inList;
     setAvailable((prev) => prev.map((l) => (l.id === list.id ? { ...l, inList: nextInList } : l)));
-    onChange({ id: list.id, name: list.name, createdAt: new Date(), entityType, createdById: null }, nextInList);
+    onChange({ id: list.id, name: list.name, createdAt: new Date(), entityType, createdById: null, workspaceId: "" }, nextInList);
     startTransition(async () => {
       if (nextInList) await addToList(list.id, entityId);
       else await removeFromList(list.id, entityId);

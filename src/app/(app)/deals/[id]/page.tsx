@@ -8,6 +8,7 @@ import { listMyMailboxOptions } from "@/lib/actions/mailbox-preferences";
 import { listListsForEntity } from "@/lib/actions/lists";
 import { listMembers } from "@/lib/actions/members";
 import { OpportunityDetailView } from "@/components/opportunity-detail-view";
+import { requireWorkspace, opportunityVisibilityFilter } from "@/lib/workspace";
 
 export default async function OpportunityDetailPage({
   params,
@@ -15,13 +16,15 @@ export default async function OpportunityDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const ctx = await requireWorkspace();
+  const { workspaceId } = ctx;
 
   const [all, opportunity, stages, events, favorited, mailboxes, lists, users] = await Promise.all([
-    db.opportunity.findMany({ select: { id: true }, orderBy: { createdAt: "desc" } }),
+    db.opportunity.findMany({ where: { workspaceId, ...opportunityVisibilityFilter(ctx) }, select: { id: true }, orderBy: { createdAt: "desc" } }),
     getOpportunity(id),
     listPipelineStages(),
     db.activity.findMany({
-      where: { entityType: "opportunity", entityId: id },
+      where: { workspaceId, entityType: "opportunity", entityId: id },
       include: { actor: true },
       orderBy: { createdAt: "desc" },
     }),
@@ -37,17 +40,18 @@ export default async function OpportunityDetailPage({
 
   const [tasks, emails, notes] = await Promise.all([
     db.task.findMany({
-      where: { opportunities: { some: { opportunityId: id } } },
+      where: { workspaceId, opportunities: { some: { opportunityId: id } } },
       orderBy: [{ done: "asc" }, { dueAt: "asc" }],
       include: { person: true, opportunities: { include: { opportunity: true } } },
     }),
     opportunity.contactId
       ? db.email.findMany({
-          where: { personId: opportunity.contactId },
+          where: { workspaceId, personId: opportunity.contactId },
           orderBy: { sentAt: "desc" },
           include: {
             opens: { orderBy: { openedAt: "desc" } },
             opportunities: { include: { opportunity: true } },
+            campaignMember: { select: { campaign: { select: { id: true, name: true } } } },
           },
         })
       : Promise.resolve([]),

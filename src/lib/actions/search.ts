@@ -1,5 +1,6 @@
 "use server";
 
+import { requireWorkspace, personVisibilityFilter, companyVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export type WorkspaceSearchResult = {
@@ -11,18 +12,21 @@ export type WorkspaceSearchResult = {
 };
 
 export async function searchWorkspace(query: string): Promise<WorkspaceSearchResult[]> {
+  const ctx = await requireWorkspace();
   const q = query.trim();
   if (!q) return [];
 
   const [companies, people] = await Promise.all([
     db.company.findMany({
-      where: { name: { contains: q, mode: "insensitive" } },
+      where: { workspaceId: ctx.workspaceId, name: { contains: q, mode: "insensitive" }, ...companyVisibilityFilter(ctx) },
       orderBy: { name: "asc" },
       take: 10,
       select: { id: true, name: true, domain: true },
     }),
     db.person.findMany({
       where: {
+        workspaceId: ctx.workspaceId,
+        ...personVisibilityFilter(ctx),
         OR: [
           { firstName: { contains: q, mode: "insensitive" } },
           { lastName: { contains: q, mode: "insensitive" } },

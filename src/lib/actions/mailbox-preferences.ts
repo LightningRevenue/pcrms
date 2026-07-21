@@ -1,16 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export async function listMyMailboxPreferences() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const [mailboxes, preferences] = await Promise.all([
-    db.mailboxAccount.findMany({ where: { active: true }, orderBy: { createdAt: "asc" } }),
-    db.userMailboxPreference.findMany({ where: { userId: session.user.id }, select: { mailboxAccountId: true } }),
+    db.mailboxAccount.findMany({ where: { workspaceId, active: true }, orderBy: { createdAt: "asc" } }),
+    db.userMailboxPreference.findMany({ where: { workspaceId, userId }, select: { mailboxAccountId: true } }),
   ]);
 
   const selectedIds = new Set(preferences.map((p) => p.mailboxAccountId));
@@ -20,11 +19,10 @@ export async function listMyMailboxPreferences() {
 // The From picker in compose (Unified Inbox, contacts, deals) should only ever offer the
 // mailboxes this user has picked in Settings > General — never the whole workspace's list.
 export async function listMyMailboxOptions() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const preferences = await db.userMailboxPreference.findMany({
-    where: { userId: session.user.id, mailboxAccount: { active: true } },
+    where: { workspaceId, userId, mailboxAccount: { active: true } },
     select: { mailboxAccount: { select: { id: true, label: true, email: true } } },
     orderBy: { createdAt: "asc" },
   });
@@ -33,18 +31,17 @@ export async function listMyMailboxOptions() {
 }
 
 export async function setMailboxPreference(mailboxAccountId: string, selected: boolean) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   if (selected) {
     await db.userMailboxPreference.upsert({
-      where: { userId_mailboxAccountId: { userId: session.user.id, mailboxAccountId } },
-      create: { userId: session.user.id, mailboxAccountId },
+      where: { userId_mailboxAccountId: { userId, mailboxAccountId } },
+      create: { workspaceId, userId, mailboxAccountId },
       update: {},
     });
   } else {
     await db.userMailboxPreference.deleteMany({
-      where: { userId: session.user.id, mailboxAccountId },
+      where: { workspaceId, userId, mailboxAccountId },
     });
   }
 

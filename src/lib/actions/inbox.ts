@@ -1,19 +1,27 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { runImapPollAll } from "@/lib/imap-sync";
 
 export async function listInboxThreads() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const ctx = await requireWorkspace();
+  const { workspaceId } = ctx;
 
+  // A plain member only sees threads tied to a contact they own — unowned/other-owner
+  // mail (e.g. unrecognized IMAP senders) drops out for them, same rule as the CRM views.
+  const personFilter = personVisibilityFilter(ctx);
   const emails = await db.email.findMany({
+    where: {
+      workspaceId,
+      ...(Object.keys(personFilter).length ? { person: personFilter } : {}),
+    },
     orderBy: { sentAt: "asc" },
     include: {
       person: { select: { id: true, firstName: true, lastName: true, email: true, companyId: true } },
       opens: true,
+      campaignMember: { select: { campaign: { select: { id: true, name: true } } } },
     },
   });
 
@@ -50,8 +58,7 @@ export async function listInboxThreads() {
 export type InboxThread = Awaited<ReturnType<typeof listInboxThreads>>[number];
 
 export async function syncInboxNow() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  await requireWorkspace();
 
   const found = await runImapPollAll();
   revalidatePath("/inbox");
@@ -59,10 +66,12 @@ export async function syncInboxNow() {
 }
 
 export async function searchContactsForCompose(query: string) {
+  const { workspaceId } = await requireWorkspace();
   const q = query.trim();
   if (!q) return [];
   const people = await db.person.findMany({
     where: {
+      workspaceId,
       email: { not: null },
       OR: [
         { firstName: { contains: q, mode: "insensitive" } },

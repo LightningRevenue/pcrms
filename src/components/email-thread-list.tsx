@@ -18,6 +18,7 @@ function formatDate(date: Date) {
 type EmailWithOpens = Email & {
   opens: EmailOpen[];
   opportunities: (EmailOpportunity & { opportunity: Opportunity })[];
+  campaignMember?: { campaign: { id: string; name: string } } | null;
 };
 
 export function EmailThreadList({
@@ -153,6 +154,14 @@ export function EmailThreadList({
                         >
                           {email.direction === "sent" ? "Sent" : "Received"}
                         </span>
+                        {email.campaignMember?.campaign && (
+                          <span
+                            className="text-[11px] px-1.5 py-0.5 rounded font-medium bg-violet-500 text-white"
+                            title={`Sent from campaign: ${email.campaignMember.campaign.name}`}
+                          >
+                            Marketing
+                          </span>
+                        )}
                         <span className="text-[13px] font-medium truncate">{email.subject}</span>
                       </div>
                       <p className="text-[12px] text-subtle mt-1 truncate">

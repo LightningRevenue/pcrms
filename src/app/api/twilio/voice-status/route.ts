@@ -30,6 +30,7 @@ export async function POST(request: Request) {
   if (existing.personId) {
     await db.activity.create({
       data: {
+        workspaceId: existing.workspaceId,
         entityType: "person",
         entityId: existing.personId,
         kind: "call_logged",
