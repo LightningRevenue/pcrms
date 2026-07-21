@@ -1,15 +1,25 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useSession } from "next-auth/react";
 import { Plus, X } from "lucide-react";
-import { inviteMember, revokeInvite, type InviteMemberInput } from "@/lib/actions/members";
+import { inviteMember, revokeInvite, updateMemberRole, type InviteMemberInput, type WorkspaceRole } from "@/lib/actions/members";
 
-type Member = { id: string; name: string | null; email: string | null; image: string | null; role: string };
+type Member = { id: string; memberId: string; name: string | null; email: string | null; image: string | null; role: string };
 type Invite = { id: string; email: string; role: string; createdAt: Date; expiresAt: Date };
 
-export function MembersManager({ members, invites: initialInvites }: { members: Member[]; invites: Invite[] }) {
+const ROLES: { value: WorkspaceRole; label: string }[] = [
+  { value: "member", label: "Member" },
+  { value: "admin", label: "Admin" },
+  { value: "owner", label: "Owner" },
+];
+
+export function MembersManager({ members: initialMembers, invites: initialInvites }: { members: Member[]; invites: Invite[] }) {
+  const { data: session } = useSession();
+  const [members, setMembers] = useState(initialMembers);
   const [invites, setInvites] = useState(initialInvites);
   const [inviting, setInviting] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function handleRevoke(id: string) {
@@ -18,6 +28,22 @@ export function MembersManager({ members, invites: initialInvites }: { members: 
       setInvites((prev) => prev.filter((i) => i.id !== id));
     });
   }
+
+  function handleRoleChange(member: Member, role: WorkspaceRole) {
+    setRoleError(null);
+    const previous = member.role;
+    setMembers((prev) => prev.map((m) => (m.memberId === member.memberId ? { ...m, role } : m)));
+    startTransition(async () => {
+      try {
+        await updateMemberRole(member.memberId, role);
+      } catch (err) {
+        setMembers((prev) => prev.map((m) => (m.memberId === member.memberId ? { ...m, role: previous } : m)));
+        setRoleError(err instanceof Error ? err.message : "Could not update role");
+      }
+    });
+  }
+
+  const isOwner = session?.user?.role === "owner";
 
   return (
     <div className="mt-6">
@@ -32,6 +58,8 @@ export function MembersManager({ members, invites: initialInvites }: { members: 
         </button>
       </div>
 
+      {roleError && <p className="mt-2 text-[12px] text-red-400">{roleError}</p>}
+
       <div className="mt-2 border border-border rounded-md overflow-hidden">
         {members.map((m) => (
           <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 text-[13px] border-b border-border last:border-b-0">
@@ -42,7 +70,21 @@ export function MembersManager({ members, invites: initialInvites }: { members: 
               <div className="font-medium truncate">{m.name || "Unnamed"}</div>
               <div className="text-subtle text-[12px] truncate">{m.email}</div>
             </div>
-            <span className="text-[11px] text-subtle capitalize shrink-0">{m.role}</span>
+            {isOwner ? (
+              <select
+                value={m.role}
+                onChange={(e) => handleRoleChange(m, e.target.value as WorkspaceRole)}
+                className="shrink-0 text-[12px] bg-transparent border border-border rounded-md px-1.5 py-1 outline-none cursor-pointer capitalize"
+              >
+                {ROLES.map((r) => (
+                  <option key={r.value} value={r.value} className="bg-background text-foreground">
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-[11px] text-subtle capitalize shrink-0">{m.role}</span>
+            )}
           </div>
         ))}
         {members.length === 0 && <div className="px-3 py-4 text-[13px] text-subtle text-center">No members yet</div>}
@@ -122,11 +164,14 @@ function InviteMemberDialog({ onCancel }: { onCancel: () => void }) {
             <Field label="Role">
               <select
                 value={form.role}
-                onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as "owner" | "member" }))}
+                onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as WorkspaceRole }))}
                 className="w-full text-[13px] outline-none bg-transparent border-b border-border focus:border-accent transition-colors py-1.5"
               >
-                <option value="member">Member</option>
-                <option value="owner">Owner</option>
+                {ROLES.map((r) => (
+                  <option key={r.value} value={r.value} className="bg-background text-foreground">
+                    {r.label}
+                  </option>
+                ))}
               </select>
             </Field>
           </div>

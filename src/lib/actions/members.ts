@@ -14,9 +14,9 @@ export async function listMembers() {
   const members = await db.workspaceMember.findMany({
     where: { workspaceId },
     orderBy: { id: "asc" },
-    select: { role: true, user: { select: { id: true, name: true, email: true, image: true } } },
+    select: { id: true, role: true, user: { select: { id: true, name: true, email: true, image: true } } },
   });
-  return members.map((m) => ({ ...m.user, role: m.role }));
+  return members.map((m) => ({ ...m.user, role: m.role, memberId: m.id }));
 }
 
 export async function listPendingInvites() {
@@ -28,7 +28,8 @@ export async function listPendingInvites() {
   });
 }
 
-export type InviteMemberInput = { email: string; role?: "owner" | "member" };
+export type WorkspaceRole = "owner" | "admin" | "member";
+export type InviteMemberInput = { email: string; role?: WorkspaceRole };
 
 // Owner-only: creates a WorkspaceInvite and emails the recipient a one-time sign-in link.
 // Deliberately does NOT create a User row directly (the old createMember behavior) — a new
@@ -76,5 +77,21 @@ export async function inviteMember(input: InviteMemberInput) {
 export async function revokeInvite(inviteId: string) {
   const { workspaceId } = await requireWorkspaceOwner();
   await db.workspaceInvite.deleteMany({ where: { id: inviteId, workspaceId } });
+  revalidatePath("/settings/members");
+}
+
+// Owner-only: changes another member's role. Refuses to demote the workspace's last
+// remaining owner — leaving a workspace with zero owners would lock everyone out of
+// owner-only pages (billing, this one, the Google-domain allowlist) with no way back in.
+export async function updateMemberRole(memberId: string, role: WorkspaceRole) {
+  const { workspaceId } = await requireWorkspaceOwner();
+
+  const member = await db.workspaceMember.findUniqueOrThrow({ where: { id: memberId, workspaceId } });
+  if (member.role === "owner" && role !== "owner") {
+    const ownerCount = await db.workspaceMember.count({ where: { workspaceId, role: "owner" } });
+    if (ownerCount <= 1) throw new Error("A workspace needs at least one owner.");
+  }
+
+  await db.workspaceMember.update({ where: { id: memberId }, data: { role } });
   revalidatePath("/settings/members");
 }
