@@ -4,18 +4,17 @@ import { db } from "@/lib/db";
 export const SETTING_KEYS = {
   appBaseUrl: "app_base_url",
   trackingDomain: "tracking_domain",
-  allowedEmailDomain: "allowed_email_domain",
   // Value is either "gmail" or a MailboxAccount id — the inbox internal CRM notifications
   // (assigned to a teammate, etc.) send from. Workspace-wide, not per-user.
   notificationInbox: "notification_inbox",
 } as const;
 
-// workspaceId is omitted for the genuinely global keys (app_base_url, tracking_domain,
-// allowed_email_domain); pass it for per-workspace keys (notification_inbox). Prisma's
-// compound-unique input can't express a NULL workspaceId (its generated type requires
-// `workspaceId: string`, even though the column itself is nullable — a Prisma limitation
-// with @@unique over optional fields), so the null/global case has to go through
-// findFirst/a manual create-or-update instead of workspaceId_key directly.
+// workspaceId is omitted for the genuinely global keys (app_base_url, tracking_domain);
+// pass it for per-workspace keys (notification_inbox). Prisma's compound-unique input
+// can't express a NULL workspaceId (its generated type requires `workspaceId: string`,
+// even though the column itself is nullable — a Prisma limitation with @@unique over
+// optional fields), so the null/global case has to go through findFirst/a manual
+// create-or-update instead of workspaceId_key directly.
 export async function getSetting(key: string, workspaceId?: string | null) {
   const row = workspaceId
     ? await db.workspaceSetting.findUnique({ where: { workspaceId_key: { workspaceId, key } } })
