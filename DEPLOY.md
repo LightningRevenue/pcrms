@@ -66,10 +66,15 @@ DATABASE_URL="postgresql://crm:crm@localhost:5433/crm"
 REDIS_URL="redis://localhost:6380"
 
 AUTH_SECRET="<paste the openssl rand -base64 32 value from step 0>"
+ENCRYPTION_KEY="<32-byte hex key, generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\">"
 AUTH_URL="https://your-domain.com"
 AUTH_GOOGLE_ID="<your Google OAuth client ID>"
 AUTH_GOOGLE_SECRET="<your NEW Google OAuth client secret>"
 ```
+
+`ENCRYPTION_KEY` encrypts secrets at rest (mailbox passwords, Twilio auth tokens) —
+required before running migrations or starting the app/workers, or anything touching
+`MailboxAccount`/`TwilioAccount` credentials will throw at runtime.
 
 `AUTH_URL` must be set to the exact public URL the app is served at —
 without it, Auth.js falls back to inferring the host from the request, which
@@ -93,9 +98,10 @@ docker compose up -d
 ```
 
 This builds and starts `postgres`, `redis`, `gmail-sync-worker`,
-`import-worker`, `sequence-worker`, `imap-poll-worker`, and `campaign-worker` —
-everything except the Next.js app itself, which docker-compose.yml doesn't
-define a service for yet (it's meant to run via `npm`/PM2 alongside, see step 7).
+`import-worker`, `sequence-worker`, `imap-poll-worker`, `campaign-worker`, and
+`trash-purge-worker` — everything except the Next.js app itself, which
+docker-compose.yml doesn't define a service for yet (it's meant to run via
+`npm`/PM2 alongside, see step 7).
 
 Check everything came up:
 
@@ -103,7 +109,7 @@ Check everything came up:
 docker compose ps
 ```
 
-All six containers should show `Up`. If one is missing, check its logs:
+All seven containers should show `Up`. If one is missing, check its logs:
 
 ```bash
 docker compose logs <service-name> --tail 50

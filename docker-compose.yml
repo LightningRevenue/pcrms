@@ -34,6 +34,7 @@ services:
       REDIS_URL: redis://redis:6379
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
 
   import-worker:
     build:
@@ -78,6 +79,7 @@ services:
     environment:
       DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
       REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
 
   campaign-worker:
     build:
@@ -85,6 +87,20 @@ services:
       dockerfile: worker/Dockerfile
       args:
         WORKER_ENTRY: worker/campaign-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+
+  trash-purge-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/trash-purge-worker.ts
     restart: unless-stopped
     depends_on:
       - postgres
