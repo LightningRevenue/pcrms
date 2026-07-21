@@ -6,6 +6,103 @@ datasource db {
   provider = "postgresql"
 }
 
+// A tenant. Each User belongs to exactly one Workspace (via WorkspaceMember, unique on userId) —
+// no cross-workspace membership or workspace-switching yet. Add multi-workspace-per-user only
+// if a real case (e.g. a consultant working two client workspaces) shows up.
+//
+// emailDomain is the company email domain that created this workspace (e.g. "acme.com") —
+// the first sign-in from a domain creates the Workspace and claims it; every later sign-in
+// from that same domain is blocked unless they arrive via a valid WorkspaceInvite, so
+// teammates always land in one shared workspace instead of each minting their own.
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  industry   String?
+  size       String? // "1-10" | "11-50" | "51-200" | "201-500" | "500+"
+  emailDomain String  @unique
+  createdAt  DateTime @default(now())
+  // Set by a platform admin (see User.isPlatformAdmin) to block every member's access —
+  // checked in requireWorkspace(), null means active.
+  suspendedAt DateTime?
+
+  members WorkspaceMember[]
+  invites WorkspaceInvite[]
+
+  companies                Company[]
+  people                   Person[]
+  activity                 Activity[]
+  tasks                    Task[]
+  opportunities            Opportunity[]
+  pipelineStages           PipelineStage[]
+  emails                   Email[]
+  emailOpportunities       EmailOpportunity[]
+  taskOpportunities        TaskOpportunity[]
+  emailTemplates           EmailTemplate[]
+  playbooks                Playbook[]
+  playbookSections         PlaybookSection[]
+  customFieldDefinitions   CustomFieldDefinition[]
+  customFieldValues        CustomFieldValue[]
+  importBatches            ImportBatch[]
+  mailboxAccounts          MailboxAccount[]
+  twilioAccount            TwilioAccount?
+  calls                    Call[]
+  userMailboxPreferences   UserMailboxPreference[]
+  workflows                Workflow[]
+  dashboards               Dashboard[]
+  emailOpens               EmailOpen[]
+  notes                    Note[]
+  noteOpportunities        NoteOpportunity[]
+  campaigns                Campaign[]
+  campaignMailboxes        CampaignMailbox[]
+  campaignMembers          CampaignMember[]
+  sequences                Sequence[]
+  sequenceSteps            SequenceStep[]
+  sequenceEnrollments      SequenceEnrollment[]
+  sequenceStepRuns         SequenceStepRun[]
+  lists                    List[]
+  listItems                ListItem[]
+  favorites                Favorite[]
+  notifications            Notification[]
+  settings                 WorkspaceSetting[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  role        String    @default("member") // "owner" | "member"
+  onboardedAt DateTime?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// A pending invitation to join an existing Workspace, sent by an owner/member to a specific
+// email address. Consumed at sign-in: if a matching, unexpired, unconsumed invite exists for
+// the signing-in email, the user joins that Workspace instead of being blocked by the
+// "domain already has a workspace" rule (see Workspace.emailDomain) or minting a new one.
+model WorkspaceInvite {
+  id        String    @id @default(cuid())
+  email     String
+  role      String    @default("member") // "owner" | "member"
+  token     String    @unique
+  expiresAt DateTime
+  acceptedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  invitedById String?
+  invitedBy   User?   @relation(fields: [invitedById], references: [id])
+
+  @@index([workspaceId])
+  @@index([email])
+}
+
 // Auth.js required models — https://authjs.dev/getting-started/adapters/prisma
 model User {
   id            String    @id @default(cuid())
@@ -20,6 +117,16 @@ model User {
   website       String?
   title         String?
   company       String?
+  // Only set for accounts created via the email+password (Credentials) flow — bcrypt hash,
+  // never the raw password. Google-only accounts have no password and can't use Credentials sign-in.
+  passwordHash  String?
+  // Grants access to /admin (platform-wide operator console — list/suspend workspaces, etc.),
+  // completely separate from WorkspaceMember.role: a platform admin isn't necessarily a member
+  // of any workspace at all. Set manually in the DB, not through any UI — there's no self-serve
+  // path to becoming one.
+  isPlatformAdmin Boolean @default(false)
+  workspaceMember WorkspaceMember?
+  sentInvites     WorkspaceInvite[]
   accounts        Account[]
   sessions        Session[]
   people          Person[] @relation("PersonCreatedBy")
@@ -60,8 +167,12 @@ model Favorite {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([userId, entityType, entityId])
   @@index([userId, createdAt])
+  @@index([workspaceId])
 }
 
 // A List holds one entity type only (fixed at creation). Membership rows (ListItem)
@@ -76,7 +187,12 @@ model List {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   items ListItem[]
+
+  @@index([workspaceId])
 }
 
 model ListItem {
@@ -87,8 +203,12 @@ model ListItem {
   listId String
   list   List   @relation(fields: [listId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([listId, entityId])
   @@index([listId])
+  @@index([workspaceId])
 }
 
 model Account {
@@ -134,6 +254,7 @@ model Company {
   linkedin       String?
   annualRevenue  String?
   createdAt      DateTime @default(now())
+  deletedAt      DateTime?
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
@@ -141,8 +262,14 @@ model Company {
   importBatchId String?
   importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   people        Person[]
   opportunities Opportunity[]
+
+  @@index([workspaceId])
+  @@index([deletedAt])
 }
 
 model Person {
@@ -154,6 +281,7 @@ model Person {
   jobTitle  String?
   linkedin  String?
   createdAt DateTime @default(now())
+  deletedAt DateTime?
 
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
@@ -167,6 +295,9 @@ model Person {
   importBatchId String?
   importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   opportunities Opportunity[]
   emails        Email[]
   tasks         Task[]
@@ -174,6 +305,9 @@ model Person {
   sequenceEnrollments SequenceEnrollment[]
   campaignMembers CampaignMember[]
   calls Call[]
+
+  @@index([workspaceId])
+  @@index([deletedAt])
 }
 
 // Unified activity log for Person/Company/Opportunity timelines. entityId is not a
@@ -191,7 +325,11 @@ model Activity {
   actorId String?
   actor   User?   @relation(fields: [actorId], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([entityType, entityId, createdAt])
+  @@index([workspaceId])
 }
 
 model Task {
@@ -210,9 +348,13 @@ model Task {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   opportunities TaskOpportunity[]
 
   @@index([personId])
+  @@index([workspaceId])
 }
 
 model Opportunity {
@@ -222,6 +364,7 @@ model Opportunity {
   stage     String   @default("New")
   closeDate DateTime?
   createdAt DateTime @default(now())
+  deletedAt DateTime?
 
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
@@ -235,9 +378,15 @@ model Opportunity {
   createdById String?
   createdBy   User?   @relation("OpportunityCreatedBy", fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   emails EmailOpportunity[]
   tasks  TaskOpportunity[]
   notes  NoteOpportunity[]
+
+  @@index([workspaceId])
+  @@index([deletedAt])
 }
 
 model PipelineStage {
@@ -247,7 +396,10 @@ model PipelineStage {
   outcome   String   @default("open") // "open" | "won" | "lost"
   createdAt DateTime @default(now())
 
-  @@unique([label])
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, label])
 }
 
 model Email {
@@ -289,9 +441,13 @@ model Email {
   opens EmailOpen[]
   opportunities EmailOpportunity[]
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([mailboxAccountId, imapUid])
   @@index([personId])
   @@index([gmailThreadId])
+  @@index([workspaceId])
 }
 
 model EmailOpportunity {
@@ -300,8 +456,12 @@ model EmailOpportunity {
   opportunityId String
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@id([emailId, opportunityId])
   @@index([opportunityId])
+  @@index([workspaceId])
 }
 
 model TaskOpportunity {
@@ -310,8 +470,12 @@ model TaskOpportunity {
   opportunityId String
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@id([taskId, opportunityId])
   @@index([opportunityId])
+  @@index([workspaceId])
 }
 
 model EmailTemplate {
@@ -324,8 +488,13 @@ model EmailTemplate {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   sequenceSteps SequenceStep[]
   campaigns     Campaign[]
+
+  @@index([workspaceId])
 }
 
 model Playbook {
@@ -337,7 +506,12 @@ model Playbook {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   sections PlaybookSection[]
+
+  @@index([workspaceId])
 }
 
 model PlaybookSection {
@@ -349,7 +523,11 @@ model PlaybookSection {
   playbookId String
   playbook   Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([playbookId])
+  @@index([workspaceId])
 }
 
 model CronJobRun {
@@ -374,9 +552,12 @@ model CustomFieldDefinition {
   order      Int      @default(0)
   createdAt  DateTime @default(now())
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   values CustomFieldValue[]
 
-  @@unique([objectType, key])
+  @@unique([workspaceId, objectType, key])
 }
 
 model CustomFieldValue {
@@ -388,8 +569,12 @@ model CustomFieldValue {
   definitionId String
   definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([definitionId, recordId])
   @@index([recordId])
+  @@index([workspaceId])
 }
 
 model ImportBatch {
@@ -406,8 +591,13 @@ model ImportBatch {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   companies Company[]
   people    Person[]
+
+  @@index([workspaceId])
 }
 
 model Notification {
@@ -422,7 +612,11 @@ model Notification {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([userId, read, createdAt])
+  @@index([workspaceId])
 }
 
 // Outreach mailbox connected via raw SMTP/IMAP creds (no OAuth) — used for sending sequence
@@ -454,17 +648,21 @@ model MailboxAccount {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   emails Email[]
   defaultForUsers UserMailboxPreference[]
   campaigns CampaignMailbox[]
 
   @@index([createdById])
+  @@index([workspaceId])
 }
 
-// Workspace-wide Twilio Voice credentials — a single row (id fixed to "default"),
-// not per-user, since calls go out from one shared Twilio number. Configured in
-// Settings > Accounts > Twilio instead of env vars so it can be rotated without a
-// redeploy.
+// Workspace-wide Twilio Voice credentials — one row per Workspace (was a single
+// hardcoded id: "default" row pre-multi-tenancy), not per-user, since calls go out
+// from one shared Twilio number per workspace. Configured in Settings > Accounts >
+// Twilio instead of env vars so it can be rotated without a redeploy.
 //
 // accountSid/authToken/phoneNumber authenticate server-side REST calls (placing
 // calls, fetching recordings). apiKeySid/apiKeySecret + twimlAppSid are the
@@ -473,7 +671,7 @@ model MailboxAccount {
 // register with Twilio and place a WebRTC call through the TwiML App, which
 // points at this app's /api/twilio/voice webhook.
 model TwilioAccount {
-  id          String   @id @default("default")
+  id          String   @id @default(cuid())
   accountSid  String
   // ponytail: stored plain, no secrets vault wired up yet — same tradeoff as MailboxAccount.password.
   authToken   String
@@ -487,6 +685,9 @@ model TwilioAccount {
 
   updatedById String?
   updatedBy   User?   @relation(fields: [updatedById], references: [id])
+
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 // One row per browser-initiated call. Created when the agent clicks "Call" and
@@ -513,8 +714,12 @@ model Call {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([personId])
   @@index([twilioCallSid])
+  @@index([workspaceId])
 }
 
 // A user's chosen set of "my mailboxes" among the connected outreach inboxes — surfaced in
@@ -531,13 +736,29 @@ model UserMailboxPreference {
   mailboxAccountId String
   mailboxAccount   MailboxAccount @relation(fields: [mailboxAccountId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([userId, mailboxAccountId])
   @@index([mailboxAccountId])
+  @@index([workspaceId])
 }
 
+// Key-value settings, some genuinely global (app_base_url, tracking_domain — this app runs
+// on one domain regardless of workspace) and some per-workspace (notification_inbox — which
+// mailbox sends a given workspace's internal CRM notifications). workspaceId is null for the
+// global ones; @@unique([workspaceId, key]) lets both null (global) and per-workspace rows
+// coexist under the same key without colliding — Postgres treats each NULL as distinct for
+// uniqueness, so multiple workspaces can each have their own "notification_inbox" row.
 model WorkspaceSetting {
-  key   String @id
+  id    String  @id @default(cuid())
+  key   String
   value String
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
 }
 
 model Workflow {
@@ -549,6 +770,11 @@ model Workflow {
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 // One row per built-in dashboard view. `kind` selects which hardcoded stats
@@ -557,9 +783,14 @@ model Workflow {
 model Dashboard {
   id        String   @id @default(cuid())
   name      String
-  kind      String   @unique // "sales-tracking" — maps to a specific dashboard view
+  kind      String   // "sales-tracking" — maps to a specific dashboard view
   order     Int      @default(0)
   createdAt DateTime @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, kind])
 }
 
 model EmailOpen {
@@ -571,7 +802,11 @@ model EmailOpen {
   emailId String
   email   Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([emailId])
+  @@index([workspaceId])
 }
 
 model Note {
@@ -585,9 +820,13 @@ model Note {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   opportunities NoteOpportunity[]
 
   @@index([personId])
+  @@index([workspaceId])
 }
 
 model NoteOpportunity {
@@ -596,8 +835,12 @@ model NoteOpportunity {
   opportunityId String
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@id([noteId, opportunityId])
   @@index([opportunityId])
+  @@index([workspaceId])
 }
 
 // A bulk-email campaign: a one-off send to a static set of people, as opposed to a
@@ -618,8 +861,13 @@ model Campaign {
   templateId String?
   template   EmailTemplate? @relation(fields: [templateId], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   members  CampaignMember[]
   mailboxes CampaignMailbox[]
+
+  @@index([workspaceId])
 }
 
 model CampaignMailbox {
@@ -632,8 +880,12 @@ model CampaignMailbox {
   mailboxAccountId String
   mailboxAccount   MailboxAccount @relation(fields: [mailboxAccountId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([campaignId, mailboxAccountId])
   @@index([mailboxAccountId])
+  @@index([workspaceId])
 }
 
 model CampaignMember {
@@ -659,8 +911,12 @@ model CampaignMember {
 
   emails Email[]
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([campaignId, personId])
   @@index([personId])
+  @@index([workspaceId])
 }
 
 model Sequence {
@@ -672,8 +928,13 @@ model Sequence {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   steps       SequenceStep[]
   enrollments SequenceEnrollment[]
+
+  @@index([workspaceId])
 }
 
 model SequenceStep {
@@ -704,9 +965,13 @@ model SequenceStep {
   sequenceId String
   sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   runs SequenceStepRun[]
 
   @@index([sequenceId, order])
+  @@index([workspaceId])
 }
 
 model SequenceEnrollment {
@@ -724,10 +989,14 @@ model SequenceEnrollment {
   enrolledById String?
   enrolledBy   User?   @relation(fields: [enrolledById], references: [id])
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   runs SequenceStepRun[]
 
   @@unique([sequenceId, personId])
   @@index([personId])
+  @@index([workspaceId])
 }
 
 model SequenceStepRun {
@@ -743,6 +1012,10 @@ model SequenceStepRun {
   stepId String
   step   SequenceStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([enrollmentId, stepId])
   @@index([status, scheduledFor])
+  @@index([workspaceId])
 }
