@@ -1,34 +1,80 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace, requireWorkspaceOwner } from "@/lib/workspace";
 import { db } from "@/lib/db";
+import { sendFromNotificationInbox } from "@/lib/notification-inbox-send";
+import { getTrackingBaseUrl } from "@/lib/workspace-settings";
+
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export async function listMembers() {
-  return db.user.findMany({ orderBy: { id: "asc" }, select: { id: true, name: true, email: true, image: true } });
+  const { workspaceId } = await requireWorkspace();
+  const members = await db.workspaceMember.findMany({
+    where: { workspaceId },
+    orderBy: { id: "asc" },
+    select: { role: true, user: { select: { id: true, name: true, email: true, image: true } } },
+  });
+  return members.map((m) => ({ ...m.user, role: m.role }));
 }
 
-export type CreateMemberInput = {
-  firstName: string;
-  lastName: string;
-  email: string;
-};
+export async function listPendingInvites() {
+  const { workspaceId } = await requireWorkspace();
+  return db.workspaceInvite.findMany({
+    where: { workspaceId, acceptedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, email: true, role: true, createdAt: true, expiresAt: true },
+  });
+}
 
-export async function createMember(input: CreateMemberInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+export type InviteMemberInput = { email: string; role?: "owner" | "member" };
 
-  const firstName = input.firstName.trim();
+// Owner-only: creates a WorkspaceInvite and emails the recipient a one-time sign-in link.
+// Deliberately does NOT create a User row directly (the old createMember behavior) — a new
+// teammate must go through the invite-token sign-in flow in auth.ts so they land in THIS
+// workspace, not accidentally create/join the wrong one.
+export async function inviteMember(input: InviteMemberInput) {
+  const { userId, workspaceId } = await requireWorkspaceOwner();
+
   const email = input.email.trim().toLowerCase();
-  if (!firstName) throw new Error("First name is required");
   if (!email) throw new Error("Email is required");
 
-  const existing = await db.user.findUnique({ where: { email } });
-  if (existing) throw new Error("A member with this email already exists");
+  const existingUser = await db.user.findUnique({ where: { email }, include: { workspaceMember: true } });
+  if (existingUser?.workspaceMember) {
+    throw new Error(
+      existingUser.workspaceMember.workspaceId === workspaceId
+        ? "This person is already a member of this workspace."
+        : "This person already belongs to another workspace."
+    );
+  }
 
-  const name = [firstName, input.lastName.trim()].filter(Boolean).join(" ");
-  const member = await db.user.create({ data: { name, email } });
+  const token = randomBytes(32).toString("hex");
+  await db.workspaceInvite.create({
+    data: {
+      email,
+      role: input.role ?? "member",
+      token,
+      expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+      workspaceId,
+      invitedById: userId,
+    },
+  });
+
+  const baseUrl = await getTrackingBaseUrl();
+  const inviteUrl = `${baseUrl}/invite/${token}`;
+  await sendFromNotificationInbox(
+    email,
+    "You've been invited to join a workspace",
+    `<p>You've been invited to join a CRM workspace.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p><p>This invite expires in 7 days.</p>`,
+    workspaceId
+  );
 
   revalidatePath("/settings/members");
-  return member;
+}
+
+export async function revokeInvite(inviteId: string) {
+  const { workspaceId } = await requireWorkspaceOwner();
+  await db.workspaceInvite.deleteMany({ where: { id: inviteId, workspaceId } });
+  revalidatePath("/settings/members");
 }

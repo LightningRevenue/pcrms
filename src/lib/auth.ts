@@ -1,10 +1,22 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Nodemailer from "next-auth/providers/nodemailer";
+import Credentials from "next-auth/providers/credentials";
+import { cookies } from "next/headers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
-import { SETTING_KEYS, getSetting, setSetting } from "@/lib/workspace-settings";
 import { sendMagicLink } from "@/lib/magic-link";
+import { ensureWorkspaceMembership, decideSignIn } from "@/lib/workspace";
+import { verifyPassword } from "@/lib/password";
+
+// Set by /invite/[token] right before redirecting into signIn("google") — read here to
+// decide which Workspace/role a brand-new sign-in should land in, then cleared once used.
+// See lib/workspace.ts's decideSignIn/ensureWorkspaceMembership for why this can't just be a
+// callback param: Auth.js's signIn callback receives no request/cookies data (verified against
+// @auth/core's actual call sites, not just its types), but next/headers' cookies() still works
+// here because this callback runs inside the same request's AsyncLocalStorage context as the
+// /api/auth/[...nextauth]/route.ts handler that invoked it.
+export const INVITE_TOKEN_COOKIE = "invite_token";
 
 const GOOGLE_SCOPES = [
   "openid",
@@ -42,42 +54,95 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         await sendMagicLink(identifier, url);
       },
     }),
+    // Email+password login. Only handles LOGIN (verifying a password against an existing
+    // User.passwordHash) — account creation happens in the /signup flow (lib/actions/signup.ts),
+    // which sets passwordHash and creates the WorkspaceMember directly, since Auth.js's
+    // createUser event never fires for Credentials sign-ins (only for adapter-driven OAuth/email
+    // flows), so there'd be nowhere else to run that workspace-assignment logic for this provider.
+    Credentials({
+      credentials: { email: {}, password: {} },
+      async authorize(raw) {
+        const email = typeof raw?.email === "string" ? raw.email.trim().toLowerCase() : null;
+        const password = typeof raw?.password === "string" ? raw.password : null;
+        if (!email || !password) return null;
+
+        const user = await db.user.findUnique({ where: { email } });
+        if (!user?.passwordHash) return null;
+
+        const valid = await verifyPassword(password, user.passwordHash);
+        if (!valid) return null;
+
+        return { id: user.id, email: user.email, name: user.name, image: user.image };
+      },
+    }),
   ],
-  session: { strategy: "database" },
-  pages: { signIn: "/login" },
+  // Must be "jwt", not "database" — Auth.js's Credentials provider always issues a JWT
+  // regardless of this setting (its own hardcoded behavior, confirmed against @auth/core's
+  // source: the credentials branch of the callback handler never calls the adapter's
+  // createSession, unlike the oauth/email branches). With "database" set globally, every
+  // cookie is looked up as an opaque Session-table token, so a Credentials-issued JWT is
+  // never recognized and gets silently stripped — this app mixes Credentials with Google/
+  // Nodemailer, which don't trigger Auth.js's own "credentials needs jwt" startup guard
+  // (that guard only fires when Credentials is the ONLY provider), so it fails silently
+  // instead of erroring at boot. "jwt" globally works fine for Google/Nodemailer too — the
+  // Prisma adapter is still used for User/Account/VerificationToken persistence, just not
+  // the Session table.
+  session: { strategy: "jwt" },
+  pages: { signIn: "/login", error: "/auth-error" },
   callbacks: {
     async signIn({ user, account }) {
       const email = user.email;
       if (!email) return false;
 
-      // Magic-link sign-ins are for teammates/test accounts added manually via Settings >
-      // Members — deliberately outside the workspace's Google domain allowlist. The only gate
-      // here is "does this User already exist"; no domain check, no auto-creation.
+      // Magic-link sign-ins are for existing members only (see sendMagicLink, which refuses
+      // to send a link at all for an email with no User row) — no workspace/domain decision
+      // needed here, that only applies to brand-new sign-ins.
       if (account?.provider === "nodemailer") {
         const existing = await db.user.findUnique({ where: { email } });
         return !!existing;
       }
 
-      const domain = email.split("@")[1]?.toLowerCase();
-      if (!domain) return false;
-
-      const allowedDomain = await getSetting(SETTING_KEYS.allowedEmailDomain);
-      if (!allowedDomain) {
-        const userCount = await db.user.count();
-        if (userCount === 0) {
-          await setSetting(SETTING_KEYS.allowedEmailDomain, domain);
-          return true;
-        }
-        // Workspace already has members but somehow no domain was ever recorded —
-        // don't silently let a new domain in; require it to be set explicitly.
-        return false;
+      const inviteToken = (await cookies()).get(INVITE_TOKEN_COOKIE)?.value ?? null;
+      const decision = await decideSignIn(email, inviteToken);
+      if (!decision.allow) {
+        // Auth.js only supports redirecting to /login?error=<code> on a false/thrown signIn,
+        // not a custom message — encode the reason so /login can surface it verbatim.
+        return `/login?error=WorkspaceRejected&reason=${encodeURIComponent(decision.reason)}`;
       }
+      return true;
+    },
+    // Runs at sign-in (user is set, from whichever provider) and on every subsequent session
+    // read (user is undefined then — token already carries `sub` from the first run).
+    async jwt({ token, user }) {
+      if (user?.id) token.sub = user.id;
+      return token;
+    },
+    // With the "jwt" strategy this always receives `token`, never `user` — look up the same
+    // WorkspaceMember row every time and attach workspaceId/role so server actions/route
+    // handlers can scope queries without a second auth() round-trip.
+    async session({ session, token }) {
+      const userId = token?.sub;
+      if (!userId) return session;
 
-      return domain === allowedDomain;
+      const [membership, user] = await Promise.all([
+        db.workspaceMember.findUnique({
+          where: { userId },
+          select: { workspaceId: true, role: true, workspace: { select: { name: true } } },
+        }),
+        db.user.findUnique({ where: { id: userId }, select: { isPlatformAdmin: true } }),
+      ]);
+      if (membership) {
+        session.user.workspaceId = membership.workspaceId;
+        session.user.workspaceName = membership.workspace.name;
+        session.user.role = membership.role;
+      }
+      session.user.isPlatformAdmin = user?.isPlatformAdmin ?? false;
+      session.user.id = userId;
+      return session;
     },
   },
   events: {
-    async signIn({ account }) {
+    async signIn({ user, account }) {
       if (!account || account.provider !== "google") return;
       await db.account.update({
         where: {
@@ -95,6 +160,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           id_token: account.id_token,
         },
       });
+    },
+    // Fires once, right after the Prisma adapter creates a brand-new User row (never for a
+    // returning user). At this point signIn() already allowed the sign-in through — this just
+    // has to figure out (or create) the Workspace to attach them to, then consume the invite
+    // (if any) for real, now that we have a durable User row to attach the membership to.
+    async createUser({ user }) {
+      if (!user.id || !user.email) return;
+      const inviteToken = (await cookies()).get(INVITE_TOKEN_COOKIE)?.value ?? null;
+      await ensureWorkspaceMembership(user.id, user.email, inviteToken);
+      if (inviteToken) (await cookies()).delete(INVITE_TOKEN_COOKIE);
     },
   },
 });

@@ -1,41 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/lib/auth";
-import { MagicLinkForm } from "@/components/magic-link-form";
-import { CredentialsLoginForm } from "@/components/credentials-login-form";
+import { SignupForm } from "@/components/signup-form";
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string; reason?: string }>;
-}) {
+export default async function SignupPage() {
   const session = await auth();
   if (session) redirect("/");
-
-  const { error, reason } = await searchParams;
-  const errorMessage =
-    error === "WorkspaceRejected" && reason
-      ? decodeURIComponent(reason)
-      : error
-        ? "Sign-in failed. Please try again."
-        : null;
 
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-full max-w-sm px-8 py-10 border border-border rounded-lg text-center">
-        <h1 className="text-xl font-medium mb-1">CRM</h1>
-        <p className="text-[13px] text-subtle mb-8">Sign in to continue</p>
-
-        {errorMessage && (
-          <p className="text-[13px] text-red-500 bg-red-500/10 rounded-md px-3 py-2 mb-4 text-left">
-            {errorMessage}
-          </p>
-        )}
+        <h1 className="text-xl font-medium mb-1">Create your workspace</h1>
+        <p className="text-[13px] text-subtle mb-8">Use your company email to get started.</p>
 
         <form
           action={async () => {
             "use server";
-            await signIn("google", { redirectTo: "/" });
+            await signIn("google", { redirectTo: "/onboarding" });
           }}
         >
           <button
@@ -58,20 +39,12 @@ export default async function LoginPage({
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        <CredentialsLoginForm />
-
-        <div className="flex items-center gap-3 my-4">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-[11px] text-subtle">or</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        <MagicLinkForm />
+        <SignupForm />
 
         <p className="text-[12px] text-subtle mt-4">
-          No account yet?{" "}
-          <Link href="/signup" className="text-foreground hover:underline">
-            Create a workspace
+          Already have an account?{" "}
+          <Link href="/login" className="text-foreground hover:underline">
+            Sign in
           </Link>
         </p>
       </div>

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
+const PUBLIC_PATHS = ["/login", "/signup", "/auth-error"];
+
 export default auth((req) => {
-  if (!req.auth && req.nextUrl.pathname !== "/login") {
+  const isPublic = PUBLIC_PATHS.includes(req.nextUrl.pathname) || req.nextUrl.pathname.startsWith("/invite/");
+  if (!req.auth && !isPublic) {
     return NextResponse.redirect(new URL("/login", req.nextUrl));
   }
 });
@@ -13,5 +16,7 @@ export const config = {
   // reaches the route handler if this guard applies to it.
   // api/twilio must stay excluded too — Twilio's servers call these webhooks directly
   // (TwiML request, recording-status callback) with no CRM session cookie either.
+  // /invite/[token] must stay reachable logged-out — that's the whole point, an invited
+  // person who doesn't have an account (or session) yet needs to open the link and sign in.
   matcher: ["/((?!api/auth|api/track|api/twilio|_next/static|_next/image|favicon.ico).*)"],
 };
