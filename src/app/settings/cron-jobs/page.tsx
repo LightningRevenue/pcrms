@@ -2,7 +2,13 @@ import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { CronJobPanel } from "@/components/cron-job-panel";
 import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
-import { listCronJobRuns, runGmailSyncNow, runSequenceStepsNow, runTrashPurgeNow } from "@/lib/actions/cron-jobs";
+import {
+  listCronJobRuns,
+  runGmailSyncNow,
+  runSequenceStepsNow,
+  runTrashPurgeNow,
+  runStripeReconcileNow,
+} from "@/lib/actions/cron-jobs";
 
 export default async function CronJobsPage() {
   const session = await auth();
@@ -10,10 +16,11 @@ export default async function CronJobsPage() {
     return <RestrictedSettingsPage crumbs={["Workspace", "Cron Jobs"]} requiredRole="owner" />;
   }
 
-  const [gmailRuns, sequenceRuns, trashRuns] = await Promise.all([
+  const [gmailRuns, sequenceRuns, trashRuns, stripeRuns] = await Promise.all([
     listCronJobRuns("gmail-reply-sync"),
     listCronJobRuns("sequence-step-runner"),
     listCronJobRuns("trash-purge"),
+    listCronJobRuns("stripe-reconcile"),
   ]);
 
   return (
@@ -50,6 +57,16 @@ export default async function CronJobsPage() {
             countLabel="Rows purged"
             runs={trashRuns}
             onRunNow={runTrashPurgeNow}
+          />
+        </div>
+
+        <div className="mt-10">
+          <CronJobPanel
+            title="stripe-reconcile"
+            description="Re-checks every workspace's Stripe subscription and corrects its plan if it's drifted from what's actually being billed, once a day."
+            countLabel="Plans corrected"
+            runs={stripeRuns}
+            onRunNow={runStripeReconcileNow}
           />
         </div>
       </div>

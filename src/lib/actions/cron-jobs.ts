@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { runGmailReplySync } from "@/lib/gmail-sync";
 import { runDueSequenceSteps } from "@/lib/sequence-runner";
 import { runTrashPurge } from "@/lib/trash-purge";
+import { runStripeReconcile } from "@/lib/stripe-reconcile";
 
 const GMAIL_JOB_NAME = "gmail-reply-sync";
 
@@ -28,5 +29,10 @@ export async function runSequenceStepsNow() {
 
 export async function runTrashPurgeNow() {
   await runTrashPurge().catch(() => {});
+  revalidatePath("/settings/cron-jobs");
+}
+
+export async function runStripeReconcileNow() {
+  await runStripeReconcile().catch(() => {});
   revalidatePath("/settings/cron-jobs");
 }
