@@ -15,55 +15,101 @@ datasource db {
 // from that same domain is blocked unless they arrive via a valid WorkspaceInvite, so
 // teammates always land in one shared workspace instead of each minting their own.
 model Workspace {
-  id         String   @id @default(cuid())
-  name       String
-  industry   String?
-  size       String? // "1-10" | "11-50" | "51-200" | "201-500" | "500+"
-  emailDomain String  @unique
-  createdAt  DateTime @default(now())
+  id          String    @id @default(cuid())
+  name        String
+  industry    String?
+  size        String? // "1-10" | "11-50" | "51-200" | "201-500" | "500+"
+  emailDomain String    @unique
+  createdAt   DateTime  @default(now())
   // Set by a platform admin (see User.isPlatformAdmin) to block every member's access —
   // checked in requireWorkspace(), null means active.
   suspendedAt DateTime?
 
+  // Every workspace has a plan — new workspaces get whichever Plan has isDefault: true
+  // (see ensureWorkspaceMembership in workspace.ts). Never null: entitlement checks
+  // (src/lib/entitlements.ts) assume a plan always resolves.
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  // Populated once Stripe billing is wired up (see BILLING integration point in
+  // entitlements.ts / billing actions) — null until a workspace actually subscribes.
+  // Until then every workspace just sits on whatever Plan an operator assigned manually.
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+
   members WorkspaceMember[]
   invites WorkspaceInvite[]
 
-  companies                Company[]
-  people                   Person[]
-  activity                 Activity[]
-  tasks                    Task[]
-  opportunities            Opportunity[]
-  pipelineStages           PipelineStage[]
-  emails                   Email[]
-  emailOpportunities       EmailOpportunity[]
-  taskOpportunities        TaskOpportunity[]
-  emailTemplates           EmailTemplate[]
-  playbooks                Playbook[]
-  playbookSections         PlaybookSection[]
-  customFieldDefinitions   CustomFieldDefinition[]
-  customFieldValues        CustomFieldValue[]
-  importBatches            ImportBatch[]
-  mailboxAccounts          MailboxAccount[]
-  twilioAccount            TwilioAccount?
-  calls                    Call[]
-  userMailboxPreferences   UserMailboxPreference[]
-  workflows                Workflow[]
-  dashboards               Dashboard[]
-  emailOpens               EmailOpen[]
-  notes                    Note[]
-  noteOpportunities        NoteOpportunity[]
-  campaigns                Campaign[]
-  campaignMailboxes        CampaignMailbox[]
-  campaignMembers          CampaignMember[]
-  sequences                Sequence[]
-  sequenceSteps            SequenceStep[]
-  sequenceEnrollments      SequenceEnrollment[]
-  sequenceStepRuns         SequenceStepRun[]
-  lists                    List[]
-  listItems                ListItem[]
-  favorites                Favorite[]
-  notifications            Notification[]
-  settings                 WorkspaceSetting[]
+  companies              Company[]
+  people                 Person[]
+  activity               Activity[]
+  tasks                  Task[]
+  opportunities          Opportunity[]
+  pipelineStages         PipelineStage[]
+  emails                 Email[]
+  emailOpportunities     EmailOpportunity[]
+  taskOpportunities      TaskOpportunity[]
+  emailTemplates         EmailTemplate[]
+  playbooks              Playbook[]
+  playbookSections       PlaybookSection[]
+  customFieldDefinitions CustomFieldDefinition[]
+  customFieldValues      CustomFieldValue[]
+  importBatches          ImportBatch[]
+  mailboxAccounts        MailboxAccount[]
+  twilioAccount          TwilioAccount?
+  calls                  Call[]
+  userMailboxPreferences UserMailboxPreference[]
+  workflows              Workflow[]
+  dashboards             Dashboard[]
+  emailOpens             EmailOpen[]
+  notes                  Note[]
+  noteOpportunities      NoteOpportunity[]
+  campaigns              Campaign[]
+  campaignMailboxes      CampaignMailbox[]
+  campaignMembers        CampaignMember[]
+  sequences              Sequence[]
+  sequenceSteps          SequenceStep[]
+  sequenceEnrollments    SequenceEnrollment[]
+  sequenceStepRuns       SequenceStepRun[]
+  lists                  List[]
+  listItems              ListItem[]
+  favorites              Favorite[]
+  notifications          Notification[]
+  settings               WorkspaceSetting[]
+}
+
+// A subscription tier (e.g. Free/Pro/Enterprise — names/pricing decided later, not here).
+// Deliberately holds no pricing/Stripe fields itself; a Plan is just a named bundle of
+// PlanLimit rows. Exactly one Plan must have isDefault: true at any time — that's what new
+// workspaces land on (see ensureWorkspaceMembership in workspace.ts).
+model Plan {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  limits     PlanLimit[]
+  workspaces Workspace[]
+}
+
+// One row per (plan, entitlement key). `key` must match an entry in the ENTITLEMENTS
+// registry (src/lib/entitlements.ts) — that registry is the single source of truth for
+// which keys exist, what they mean, and how "count" keys are measured; this table only
+// holds the numbers/flags per plan. A missing row for a given (planId, key) means
+// unlimited/enabled — see resolveLimit() in entitlements.ts.
+//
+// `value` doubles as the count cap (type: "count"/"monthly") and the on/off flag
+// (type: "feature", where 0 = disabled, any nonzero = enabled) so adding a new
+// entitlement never requires a schema change, only a new ENTITLEMENTS registry entry.
+model PlanLimit {
+  id    String @id @default(cuid())
+  key   String
+  value Int? // null = unlimited (count/monthly) or enabled (feature, when the row exists at all)
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
 }
 
 model WorkspaceMember {
@@ -85,13 +131,13 @@ model WorkspaceMember {
 // the signing-in email, the user joins that Workspace instead of being blocked by the
 // "domain already has a workspace" rule (see Workspace.emailDomain) or minting a new one.
 model WorkspaceInvite {
-  id        String    @id @default(cuid())
-  email     String
-  role      String    @default("member") // "owner" | "member"
-  token     String    @unique
-  expiresAt DateTime
+  id         String    @id @default(cuid())
+  email      String
+  role       String    @default("member") // "owner" | "member"
+  token      String    @unique
+  expiresAt  DateTime
   acceptedAt DateTime?
-  createdAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
 
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -105,60 +151,60 @@ model WorkspaceInvite {
 
 // Auth.js required models — https://authjs.dev/getting-started/adapters/prisma
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  firstName     String?
-  lastName      String?
-  personalEmail String?
-  phone         String?
-  website       String?
-  title         String?
-  company       String?
+  id                   String                  @id @default(cuid())
+  name                 String?
+  email                String?                 @unique
+  emailVerified        DateTime?
+  image                String?
+  firstName            String?
+  lastName             String?
+  personalEmail        String?
+  phone                String?
+  website              String?
+  title                String?
+  company              String?
   // Only set for accounts created via the email+password (Credentials) flow — bcrypt hash,
   // never the raw password. Google-only accounts have no password and can't use Credentials sign-in.
-  passwordHash  String?
+  passwordHash         String?
   // Grants access to /admin (platform-wide operator console — list/suspend workspaces, etc.),
   // completely separate from WorkspaceMember.role: a platform admin isn't necessarily a member
   // of any workspace at all. Set manually in the DB, not through any UI — there's no self-serve
   // path to becoming one.
-  isPlatformAdmin Boolean @default(false)
-  workspaceMember WorkspaceMember?
-  sentInvites     WorkspaceInvite[]
-  accounts        Account[]
-  sessions        Session[]
-  people          Person[] @relation("PersonCreatedBy")
-  ownedPeople     Person[] @relation("PersonOwner")
-  companies       Company[]
-  activity        Activity[]
-  sentEmails      Email[]
-  emailTemplates  EmailTemplate[]
-  notifications   Notification[]
-  workflows       Workflow[]
-  importBatches   ImportBatch[]
-  tasks           Task[]
-  ownedOpportunities Opportunity[] @relation("OpportunityOwner")
-  createdOpportunities Opportunity[] @relation("OpportunityCreatedBy")
-  notes           Note[]
-  sequences       Sequence[]
-  sequenceEnrollments SequenceEnrollment[]
-  favorites       Favorite[]
-  mailboxAccounts MailboxAccount[]
-  lists           List[]
-  mailboxPreferences UserMailboxPreference[]
-  campaigns       Campaign[]
-  campaignMembers CampaignMember[]
+  isPlatformAdmin      Boolean                 @default(false)
+  workspaceMember      WorkspaceMember?
+  sentInvites          WorkspaceInvite[]
+  accounts             Account[]
+  sessions             Session[]
+  people               Person[]                @relation("PersonCreatedBy")
+  ownedPeople          Person[]                @relation("PersonOwner")
+  companies            Company[]
+  activity             Activity[]
+  sentEmails           Email[]
+  emailTemplates       EmailTemplate[]
+  notifications        Notification[]
+  workflows            Workflow[]
+  importBatches        ImportBatch[]
+  tasks                Task[]
+  ownedOpportunities   Opportunity[]           @relation("OpportunityOwner")
+  createdOpportunities Opportunity[]           @relation("OpportunityCreatedBy")
+  notes                Note[]
+  sequences            Sequence[]
+  sequenceEnrollments  SequenceEnrollment[]
+  favorites            Favorite[]
+  mailboxAccounts      MailboxAccount[]
+  lists                List[]
+  mailboxPreferences   UserMailboxPreference[]
+  campaigns            Campaign[]
+  campaignMembers      CampaignMember[]
   twilioAccountUpdates TwilioAccount[]
-  calls Call[]
-  playbooks Playbook[]
+  calls                Call[]
+  playbooks            Playbook[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
 model Favorite {
   id         String   @id @default(cuid())
-  entityType String   // "company" | "person" | "opportunity"
+  entityType String // "company" | "person" | "opportunity"
   entityId   String
   name       String
   href       String
@@ -181,7 +227,7 @@ model Favorite {
 model List {
   id         String   @id @default(cuid())
   name       String
-  entityType String   // "company" | "person" | "opportunity"
+  entityType String // "company" | "person" | "opportunity"
   createdAt  DateTime @default(now())
 
   createdById String?
@@ -247,14 +293,14 @@ model VerificationToken {
 
 // CRM models — Company/Person/Opportunity CRUD comes next
 model Company {
-  id             String   @id @default(cuid())
-  name           String
-  domain         String?
-  address        String?
-  linkedin       String?
-  annualRevenue  String?
-  createdAt      DateTime @default(now())
-  deletedAt      DateTime?
+  id            String    @id @default(cuid())
+  name          String
+  domain        String?
+  address       String?
+  linkedin      String?
+  annualRevenue String?
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
@@ -273,14 +319,14 @@ model Company {
 }
 
 model Person {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   firstName String
   lastName  String?
   email     String?
   phone     String?
   jobTitle  String?
   linkedin  String?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   deletedAt DateTime?
 
   companyId String?
@@ -298,13 +344,13 @@ model Person {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  opportunities Opportunity[]
-  emails        Email[]
-  tasks         Task[]
-  notes         Note[]
+  opportunities       Opportunity[]
+  emails              Email[]
+  tasks               Task[]
+  notes               Note[]
   sequenceEnrollments SequenceEnrollment[]
-  campaignMembers CampaignMember[]
-  calls Call[]
+  campaignMembers     CampaignMember[]
+  calls               Call[]
 
   @@index([workspaceId])
   @@index([deletedAt])
@@ -313,14 +359,14 @@ model Person {
 // Unified activity log for Person/Company/Opportunity timelines. entityId is not a
 // relation (rows can outlive their entity being deleted) so nothing cascades from here.
 model Activity {
-  id        String   @id @default(cuid())
-  entityType String  // "person" | "company" | "opportunity"
-  entityId  String
-  kind      String   @default("field_update") // "created" | "field_update" | "opportunity_created" | "stage_changed" | "task_created" | "task_completed" | "email_sent" | "person_removed" | "company_removed"
-  field     String?
-  oldValue  String?
-  newValue  String?
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  entityType String // "person" | "company" | "opportunity"
+  entityId   String
+  kind       String   @default("field_update") // "created" | "field_update" | "opportunity_created" | "stage_changed" | "task_created" | "task_completed" | "email_sent" | "person_removed" | "company_removed"
+  field      String?
+  oldValue   String?
+  newValue   String?
+  createdAt  DateTime @default(now())
 
   actorId String?
   actor   User?   @relation(fields: [actorId], references: [id])
@@ -358,12 +404,12 @@ model Task {
 }
 
 model Opportunity {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
-  value     Int      @default(0)
-  stage     String   @default("New")
+  value     Int       @default(0)
+  stage     String    @default("New")
   closeDate DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   deletedAt DateTime?
 
   companyId String?
@@ -410,7 +456,7 @@ model Email {
   // Message-ID this one replies to (In-Reply-To header) — used to thread SMTP/IMAP mail,
   // which has no gmailThreadId, by walking the reply chain back to its root.
   inReplyTo       String?
-  direction       String   // "sent" | "received"
+  direction       String // "sent" | "received"
   from            String
   to              String[]
   cc              String[]
@@ -438,7 +484,7 @@ model Email {
   campaignMemberId String?
   campaignMember   CampaignMember? @relation(fields: [campaignMemberId], references: [id], onDelete: SetNull)
 
-  opens EmailOpen[]
+  opens         EmailOpen[]
   opportunities EmailOpportunity[]
 
   workspaceId String
@@ -531,20 +577,20 @@ model PlaybookSection {
 }
 
 model CronJobRun {
-  id           String   @id @default(cuid())
-  job          String   // "gmail-reply-sync"
-  status       String   // "success" | "error" | "running"
-  startedAt    DateTime @default(now())
-  finishedAt   DateTime?
-  emailsFound  Int      @default(0)
-  error        String?
+  id          String    @id @default(cuid())
+  job         String // "gmail-reply-sync"
+  status      String // "success" | "error" | "running"
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  emailsFound Int       @default(0)
+  error       String?
 
   @@index([job, startedAt])
 }
 
 model CustomFieldDefinition {
   id         String   @id @default(cuid())
-  objectType String   // "company" | "person"
+  objectType String // "company" | "person"
   key        String
   label      String
   type       String   @default("TEXT") // "TEXT" | "NUMBER" | "DATE" | "SELECT"
@@ -561,10 +607,10 @@ model CustomFieldDefinition {
 }
 
 model CustomFieldValue {
-  id           String   @id @default(cuid())
-  recordId     String
-  value        String?
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(cuid())
+  recordId  String
+  value     String?
+  updatedAt DateTime @updatedAt
 
   definitionId String
   definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
@@ -580,7 +626,7 @@ model CustomFieldValue {
 model ImportBatch {
   id          String   @id @default(cuid())
   name        String
-  objectType  String   // "company" | "person"
+  objectType  String // "company" | "person"
   status      String   @default("pending") // "pending" | "processing" | "done" | "failed"
   totalRows   Int      @default(0)
   successRows Int      @default(0)
@@ -602,7 +648,7 @@ model ImportBatch {
 
 model Notification {
   id        String   @id @default(cuid())
-  kind      String   // "email_reply"
+  kind      String // "email_reply"
   title     String
   body      String?
   link      String?
@@ -622,23 +668,23 @@ model Notification {
 // Outreach mailbox connected via raw SMTP/IMAP creds (no OAuth) — used for sending sequence
 // emails from an inbox other than the user's connected Gmail. Rules/scheduling not built yet.
 model MailboxAccount {
-  id         String   @id @default(cuid())
-  label      String
-  email      String
-  smtpHost   String
-  smtpPort   Int      @default(587)
-  imapHost   String
-  imapPort   Int      @default(993)
-  username   String
+  id        String   @id @default(cuid())
+  label     String
+  email     String
+  smtpHost  String
+  smtpPort  Int      @default(587)
+  imapHost  String
+  imapPort  Int      @default(993)
+  username  String
   // ponytail: stored plain, no secrets vault wired up yet. Encrypt at rest before handling real customer creds.
-  password   String
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
+  password  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
 
   // Last connection check result, set by checkMailboxAccount — not a scheduled/background check.
-  smtpStatus    String?   // "ok" | "error"
+  smtpStatus    String? // "ok" | "error"
   smtpError     String?
-  imapStatus    String?   // "ok" | "error"
+  imapStatus    String? // "ok" | "error"
   imapError     String?
   lastCheckedAt DateTime?
 
@@ -651,9 +697,9 @@ model MailboxAccount {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  emails Email[]
+  emails          Email[]
   defaultForUsers UserMailboxPreference[]
-  campaigns CampaignMailbox[]
+  campaigns       CampaignMailbox[]
 
   @@index([createdById])
   @@index([workspaceId])
@@ -671,7 +717,7 @@ model MailboxAccount {
 // register with Twilio and place a WebRTC call through the TwiML App, which
 // points at this app's /api/twilio/voice webhook.
 model TwilioAccount {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   accountSid  String
   // ponytail: stored plain, no secrets vault wired up yet — same tradeoff as MailboxAccount.password.
   authToken   String
@@ -681,7 +727,7 @@ model TwilioAccount {
   apiKeySecret String?
   twimlAppSid  String?
 
-  updatedAt   DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   updatedById String?
   updatedBy   User?   @relation(fields: [updatedById], references: [id])
@@ -704,8 +750,8 @@ model Call {
   endedAt       DateTime?
   durationSec   Int?
 
-  recordingSid      String?
-  recordingUrl       String?
+  recordingSid         String?
+  recordingUrl         String?
   recordingDurationSec Int?
 
   personId String?
@@ -751,7 +797,7 @@ model UserMailboxPreference {
 // coexist under the same key without colliding — Postgres treats each NULL as distinct for
 // uniqueness, so multiple workspaces can each have their own "notification_inbox" row.
 model WorkspaceSetting {
-  id    String  @id @default(cuid())
+  id    String @id @default(cuid())
   key   String
   value String
 
@@ -783,7 +829,7 @@ model Workflow {
 model Dashboard {
   id        String   @id @default(cuid())
   name      String
-  kind      String   // "sales-tracking" — maps to a specific dashboard view
+  kind      String // "sales-tracking" — maps to a specific dashboard view
   order     Int      @default(0)
   createdAt DateTime @default(now())
 
@@ -864,15 +910,15 @@ model Campaign {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  members  CampaignMember[]
+  members   CampaignMember[]
   mailboxes CampaignMailbox[]
 
   @@index([workspaceId])
 }
 
 model CampaignMailbox {
-  id       String   @id @default(cuid())
-  addedAt  DateTime @default(now())
+  id      String   @id @default(cuid())
+  addedAt DateTime @default(now())
 
   campaignId String
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)

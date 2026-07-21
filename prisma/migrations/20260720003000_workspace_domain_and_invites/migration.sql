@@ -18,6 +18,12 @@ FROM (
 ) sub
 WHERE w.id = sub."workspaceId" AND w."emailDomain" IS NULL;
 
+-- Fallback for a workspace with no members yet (e.g. this migration replayed from scratch
+-- on an empty database, such as Prisma's shadow database or a brand-new environment) — a
+-- placeholder that can never collide with a real domain, so NOT NULL + UNIQUE below stay
+-- satisfiable without fabricating a plausible-looking fake domain.
+UPDATE "Workspace" SET "emailDomain" = id || '.invalid' WHERE "emailDomain" IS NULL;
+
 ALTER TABLE "Workspace" ALTER COLUMN "emailDomain" SET NOT NULL;
 
 -- CreateTable
