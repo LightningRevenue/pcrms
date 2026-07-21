@@ -27,7 +27,6 @@ export function CreateNotePanel({
       return;
     }
     onSave(body.trim(), opportunityIds);
-    onClose();
   }
 
   return (

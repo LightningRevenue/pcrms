@@ -62,12 +62,18 @@ export function SequenceDetailView({
 }) {
   const [addingStep, setAddingStep] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function handleAddStep(input: SequenceStepInput) {
+    setStepError(null);
     startTransition(async () => {
-      await addSequenceStep(sequence.id, input);
-      setAddingStep(false);
+      try {
+        await addSequenceStep(sequence.id, input);
+        setAddingStep(false);
+      } catch (err) {
+        setStepError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -155,6 +161,8 @@ export function SequenceDetailView({
               );
             })}
           </div>
+
+          {stepError && <p className="text-[12px] text-red-400 mt-3">{stepError}</p>}
 
           {addingStep && (
             <div className="mt-3">

@@ -60,7 +60,6 @@ export function CreateTaskPanel({
       return;
     }
     onCreate({ title: title.trim(), description, type, due, priority, opportunityIds });
-    onClose();
   }
 
   return (

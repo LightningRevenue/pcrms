@@ -29,6 +29,7 @@ export function PipelineStagesManager({ stages: initial }: { stages: PipelineSta
   const [adding, setAdding] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PipelineStage | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function handleReorder(draggedId: string, overId: string) {
@@ -60,9 +61,14 @@ export function PipelineStagesManager({ stages: initial }: { stages: PipelineSta
   }
 
   function handleCreate(label: string, outcome: StageOutcome) {
+    setError(null);
     startTransition(async () => {
-      const stage = await createPipelineStage(label, outcome);
-      setStages((prev) => [...prev, stage]);
+      try {
+        const stage = await createPipelineStage(label, outcome);
+        setStages((prev) => [...prev, stage]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -78,6 +84,8 @@ export function PipelineStagesManager({ stages: initial }: { stages: PipelineSta
           Add stage
         </button>
       </div>
+
+      {error && <p className="text-[12px] text-red-400 mt-2">{error}</p>}
 
       <div className="mt-2 border border-border rounded-md overflow-hidden">
         {stages.map((stage) => (

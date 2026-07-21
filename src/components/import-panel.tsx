@@ -56,9 +56,14 @@ export function ImportPanel() {
 
   async function handleConfirmMapping(name: string, mapping: Record<string, string>) {
     if (!csvText) return;
+    setError(null);
     setPreview(null);
-    const id = await startImport(objectType, name, csvText, mapping);
-    setBatchId(id);
+    try {
+      const id = await startImport(objectType, name, csvText, mapping);
+      setBatchId(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start import");
+    }
   }
 
   function reset() {

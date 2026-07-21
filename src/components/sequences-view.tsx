@@ -24,16 +24,22 @@ export function SequencesView({ sequences: initial }: { sequences: SequenceRow[]
   const [sequences, setSequences] = useState(initial);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   function handleCreate() {
     if (!name.trim()) return;
+    setError(null);
     startTransition(async () => {
-      const sequence = await createSequence(name);
-      setCreating(false);
-      setName("");
-      router.push(`/sequences/${sequence.id}`);
+      try {
+        const sequence = await createSequence(name);
+        setCreating(false);
+        setName("");
+        router.push(`/sequences/${sequence.id}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -54,6 +60,7 @@ export function SequencesView({ sequences: initial }: { sequences: SequenceRow[]
         </div>
         {creating ? (
           <div className="flex items-center gap-2">
+            {error && <p className="text-[12px] text-red-400">{error}</p>}
             <input
               autoFocus
               value={name}

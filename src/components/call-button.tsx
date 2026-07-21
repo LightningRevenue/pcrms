@@ -10,6 +10,7 @@ export function CallButton({ personId, phone, name }: { personId: string; phone:
   const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
   const [state, setState] = useState<CallState>("idle");
   const [seconds, setSeconds] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const deviceRef = useRef<import("@twilio/voice-sdk").Device | null>(null);
   const callRef = useRef<import("@twilio/voice-sdk").Call | null>(null);
 
@@ -27,6 +28,7 @@ export function CallButton({ personId, phone, name }: { personId: string; phone:
   async function handleCall() {
     if (!phone) return;
     setState("connecting");
+    setError(null);
     try {
       const { Device } = await import("@twilio/voice-sdk");
       const { callId, toNumber } = await startCall(personId);
@@ -49,6 +51,7 @@ export function CallButton({ personId, phone, name }: { personId: string; phone:
       call.on("error", () => cleanup());
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : "Something went wrong");
       cleanup();
     }
   }
@@ -92,15 +95,20 @@ export function CallButton({ personId, phone, name }: { personId: string; phone:
   }
 
   return (
-    <button
-      onClick={handleCall}
-      disabled={!phone || voiceReady === false}
-      title={!phone ? "This contact has no phone number" : voiceReady === false ? "Connect Twilio Voice in Settings first" : `Call ${name}`}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      <Phone size={14} strokeWidth={1.75} />
-      Call
-    </button>
+    <div className="relative">
+      <button
+        onClick={handleCall}
+        disabled={!phone || voiceReady === false}
+        title={!phone ? "This contact has no phone number" : voiceReady === false ? "Connect Twilio Voice in Settings first" : `Call ${name}`}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <Phone size={14} strokeWidth={1.75} />
+        Call
+      </button>
+      {error && (
+        <p className="absolute left-0 top-full mt-1 w-56 text-[12px] text-red-400 whitespace-normal z-10">{error}</p>
+      )}
+    </div>
   );
 }
 

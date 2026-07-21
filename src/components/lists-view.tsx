@@ -31,16 +31,22 @@ export function ListsView({ lists: initial }: { lists: ListRow[] }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [entityType, setEntityType] = useState<ListEntityType>("company");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   function handleCreate() {
     if (!name.trim()) return;
+    setError(null);
     startTransition(async () => {
-      const list = await createList(name, entityType);
-      setCreating(false);
-      setName("");
-      router.push(`/lists/${list.id}`);
+      try {
+        const list = await createList(name, entityType);
+        setCreating(false);
+        setName("");
+        router.push(`/lists/${list.id}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -104,6 +110,12 @@ export function ListsView({ lists: initial }: { lists: ListRow[] }) {
           </button>
         )}
       </div>
+
+      {error && (
+        <div className="px-6 py-1.5 border-b border-border">
+          <p className="text-[12px] text-red-400">{error}</p>
+        </div>
+      )}
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
         <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">

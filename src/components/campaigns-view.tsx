@@ -34,17 +34,23 @@ const STATUS_STYLE: Record<string, string> = {
 export function CampaignsView({ campaigns }: { campaigns: Campaign[] }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   function handleCreate() {
     if (!name.trim()) return;
     const trimmed = name.trim();
+    setError(null);
     startTransition(async () => {
-      const campaign = await createCampaign(trimmed);
-      setCreating(false);
-      setName("");
-      router.push(`/marketing/campaigns/${campaign.id}`);
+      try {
+        const campaign = await createCampaign(trimmed);
+        setCreating(false);
+        setName("");
+        router.push(`/marketing/campaigns/${campaign.id}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -88,6 +94,7 @@ export function CampaignsView({ campaigns }: { campaigns: Campaign[] }) {
             >
               Cancel
             </button>
+            {error && <span className="text-[12px] text-red-400">{error}</span>}
           </div>
         ) : (
           <button

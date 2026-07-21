@@ -54,8 +54,12 @@ export function CreateContactPanel({ onClose }: { onClose: () => void }) {
     }
     setError(null);
     startTransition(async () => {
-      await createContact({ firstName, lastName, email, phone, company, jobTitle, linkedin });
-      onClose();
+      try {
+        await createContact({ firstName, lastName, email, phone, company, jobTitle, linkedin });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 

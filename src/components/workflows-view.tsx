@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import type { User, Workflow } from "@prisma/client";
 import { List, Workflow as WorkflowIcon, ChevronDown, ListFilter, UserCircle, CalendarDays, Plus } from "lucide-react";
@@ -20,7 +20,19 @@ function relativeTime(date: Date) {
 }
 
 export function WorkflowsView({ workflows }: { workflows: WorkflowRow[] }) {
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  function handleCreate() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createWorkflow();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
+    });
+  }
 
   return (
     <div className="flex flex-col h-screen">
@@ -30,7 +42,7 @@ export function WorkflowsView({ workflows }: { workflows: WorkflowRow[] }) {
           <span className="font-medium">Workflows</span>
         </div>
         <button
-          onClick={() => startTransition(() => createWorkflow())}
+          onClick={handleCreate}
           disabled={pending}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
@@ -38,6 +50,8 @@ export function WorkflowsView({ workflows }: { workflows: WorkflowRow[] }) {
           New Workflow
         </button>
       </div>
+
+      {error && <p className="px-6 pt-2 text-[12px] text-red-400">{error}</p>}
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
         <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">

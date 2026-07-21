@@ -52,8 +52,12 @@ export function CreateCompanyPanel({ onClose }: { onClose: () => void }) {
     }
     setError(null);
     startTransition(async () => {
-      await createCompany({ name, domain, address, linkedin, annualRevenue });
-      onClose();
+      try {
+        await createCompany({ name, domain, address, linkedin, annualRevenue });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 

@@ -33,8 +33,10 @@ export function OpportunityHeaderBar({
   const router = useRouter();
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, startDelete] = useTransition();
+  const [, startCreateTask] = useTransition();
 
   function openCompose() {
     if (!contact) return;
@@ -48,14 +50,22 @@ export function OpportunityHeaderBar({
 
   function handleCreateTask(task: NewTaskDraft) {
     if (!contact) return;
-    createTask({
-      personId: contact.id,
-      title: task.title,
-      description: task.description,
-      type: task.type,
-      due: task.due,
-      priority: task.priority,
-      opportunityIds: [opportunityId],
+    setTaskError(null);
+    startCreateTask(async () => {
+      try {
+        await createTask({
+          personId: contact.id,
+          title: task.title,
+          description: task.description,
+          type: task.type,
+          due: task.due,
+          priority: task.priority,
+          opportunityIds: [opportunityId],
+        });
+        setCreatingTask(false);
+      } catch (err) {
+        setTaskError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -81,6 +91,7 @@ export function OpportunityHeaderBar({
         <span className="ml-1">
           ({index}/{total} in By Stage → {stage})
         </span>
+        {taskError && <span className="ml-3 text-red-400">{taskError}</span>}
       </div>
 
       <div className="flex items-center gap-1.5">

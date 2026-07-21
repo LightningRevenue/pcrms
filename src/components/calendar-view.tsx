@@ -526,8 +526,12 @@ function CreateTaskPopover({
     }
     setError(null);
     startTransition(async () => {
-      await createTask({ personId: contactId, title, type, due, priority: "medium" });
-      onCreated();
+      try {
+        await createTask({ personId: contactId, title, type, due, priority: "medium" });
+        onCreated();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 

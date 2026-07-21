@@ -47,10 +47,18 @@ export function ContactNotesTab({
   opportunities?: Opportunity[];
 }) {
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function addNote(body: string, opportunityIds: string[]) {
-    startTransition(() => createNote(personId, body, opportunityIds));
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createNote(personId, body, opportunityIds);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
+    });
   }
 
   return (
@@ -66,6 +74,8 @@ export function ContactNotesTab({
           New note
         </button>
       </div>
+
+      {error && <p className="text-[12px] text-red-400 mb-2">{error}</p>}
 
       {notes.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-subtle">

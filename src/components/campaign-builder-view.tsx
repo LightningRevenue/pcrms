@@ -553,6 +553,7 @@ function StartCampaignModal({
   onStarted: () => void;
 }) {
   const [readiness, setReadiness] = useState<CampaignReadiness | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -560,9 +561,14 @@ function StartCampaignModal({
   }, [campaignId]);
 
   function confirm() {
+    setError(null);
     startTransition(async () => {
-      await startCampaign(campaignId);
-      onStarted();
+      try {
+        await startCampaign(campaignId);
+        onStarted();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -596,6 +602,8 @@ function StartCampaignModal({
             )}
           </>
         )}
+
+        {error && <p className="text-[13px] text-red-400 mt-3">{error}</p>}
 
         <div className="flex items-center justify-end gap-2 mt-5">
           <button

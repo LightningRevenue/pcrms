@@ -19,6 +19,7 @@ export function ContactTasksTab({
   opportunities?: Opportunity[];
 }) {
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function toggle(id: string) {
@@ -26,17 +27,23 @@ export function ContactTasksTab({
   }
 
   function addTask(draft: NewTaskDraft) {
-    startTransition(() =>
-      createTask({
-        personId,
-        title: draft.title,
-        description: draft.description,
-        type: draft.type,
-        due: draft.due,
-        priority: draft.priority,
-        opportunityIds: draft.opportunityIds,
-      })
-    );
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createTask({
+          personId,
+          title: draft.title,
+          description: draft.description,
+          type: draft.type,
+          due: draft.due,
+          priority: draft.priority,
+          opportunityIds: draft.opportunityIds,
+        });
+        setCreating(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
+    });
   }
 
   return (
@@ -52,6 +59,8 @@ export function ContactTasksTab({
           New task
         </button>
       </div>
+
+      {error && <p className="text-[12px] text-red-400 mb-2">{error}</p>}
 
       {tasks.length === 0 ? (
         <p className="text-[13px] text-subtle">No tasks yet.</p>

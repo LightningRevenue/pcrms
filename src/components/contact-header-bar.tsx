@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Opportunity, PipelineStage } from "@prisma/client";
-import { Mail, MoreHorizontal, Handshake, GitBranch, CheckSquare, StickyNote, Trash2 } from "lucide-react";
+import { Mail, MoreHorizontal, Handshake, GitBranch, CheckSquare, StickyNote, Trash2, X } from "lucide-react";
 import { ConvertToOpportunityPanel, type NewOpportunityDraft } from "@/components/convert-to-opportunity-panel";
 import { AddToSequencePanel } from "@/components/add-to-sequence-panel";
 import { FavoriteButton } from "@/components/favorite-button";
@@ -51,15 +51,21 @@ export function ContactHeaderBar({
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, startDelete] = useTransition();
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   function handleCreate(draft: NewOpportunityDraft) {
+    setError(null);
     startTransition(async () => {
-      await convertContactToOpportunity({
-        personId: contactId,
-        name: draft.name,
-        stage: draft.stage,
-        value: draft.value,
-      });
+      try {
+        await convertContactToOpportunity({
+          personId: contactId,
+          name: draft.name,
+          stage: draft.stage,
+          value: draft.value,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -68,18 +74,32 @@ export function ContactHeaderBar({
   }
 
   function handleCreateTask(task: NewTaskDraft) {
-    createTask({
-      personId: contactId,
-      title: task.title,
-      description: task.description,
-      type: task.type,
-      due: task.due,
-      priority: task.priority,
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createTask({
+          personId: contactId,
+          title: task.title,
+          description: task.description,
+          type: task.type,
+          due: task.due,
+          priority: task.priority,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
   function handleCreateNote(body: string, opportunityIds: string[]) {
-    createNote(contactId, body, opportunityIds);
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createNote(contactId, body, opportunityIds);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
+    });
   }
 
   function handleDelete() {
@@ -96,7 +116,16 @@ export function ContactHeaderBar({
   }
 
   return (
-    <div className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-border">
+    <div className="relative shrink-0">
+      {error && (
+        <div className="flex items-center justify-between gap-2 px-6 py-1.5 bg-red-500/10 border-b border-border">
+          <p className="text-[12px] text-red-400">{error}</p>
+          <button onClick={() => setError(null)} className="text-subtle hover:text-foreground transition-colors">
+            <X size={13} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+      <div className="h-14 flex items-center justify-between px-6 border-b border-border">
       <div className="flex items-center gap-1.5 text-[13px] text-subtle">
         <Link href="/contacts" className="hover:text-foreground transition-colors">
           People
@@ -178,6 +207,7 @@ export function ContactHeaderBar({
             </>
           )}
         </div>
+      </div>
       </div>
 
       {converting && (

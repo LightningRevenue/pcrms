@@ -31,13 +31,17 @@ export function CreateDealPanel({
     }
     setError(null);
     startTransition(async () => {
-      await createOpportunity({
-        name,
-        stage,
-        value: Math.max(0, Math.round(Number(value) || 0)),
-        contactId,
-      });
-      onClose();
+      try {
+        await createOpportunity({
+          name,
+          stage,
+          value: Math.max(0, Math.round(Number(value) || 0)),
+          contactId,
+        });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 

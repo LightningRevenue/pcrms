@@ -28,6 +28,7 @@ const EMPTY_FORM: MailboxAccountInput = {
 export function MailboxAccountsManager({ accounts: initial }: { accounts: MailboxAccount[] }) {
   const [accounts, setAccounts] = useState(initial);
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
   const [checkingAll, setCheckingAll] = useState(false);
@@ -55,9 +56,15 @@ export function MailboxAccountsManager({ accounts: initial }: { accounts: Mailbo
   }
 
   function handleCreate(input: MailboxAccountInput) {
+    setAddError(null);
     startTransition(async () => {
-      const account = await createMailboxAccount(input);
-      setAccounts((prev) => [...prev, account]);
+      try {
+        const account = await createMailboxAccount(input);
+        setAccounts((prev) => [...prev, account]);
+        setAdding(false);
+      } catch (err) {
+        setAddError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -65,9 +72,13 @@ export function MailboxAccountsManager({ accounts: initial }: { accounts: Mailbo
     const text = await file.text();
     setImportMsg("Importing…");
     startTransition(async () => {
-      const { imported, skipped } = await importMailboxAccountsCsv(text);
-      setAccounts(await listMailboxAccounts());
-      setImportMsg(`Imported ${imported} mailbox${imported === 1 ? "" : "es"}${skipped ? `, skipped ${skipped} (duplicate or invalid)` : ""}.`);
+      try {
+        const { imported, skipped } = await importMailboxAccountsCsv(text);
+        setAccounts(await listMailboxAccounts());
+        setImportMsg(`Imported ${imported} mailbox${imported === 1 ? "" : "es"}${skipped ? `, skipped ${skipped} (duplicate or invalid)` : ""}.`);
+      } catch (err) {
+        setImportMsg(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
@@ -185,15 +196,17 @@ export function MailboxAccountsManager({ accounts: initial }: { accounts: Mailbo
         )}
       </div>
 
-      {adding && <AddMailboxDialog onCancel={() => setAdding(false)} onCreate={handleCreate} />}
+      {adding && <AddMailboxDialog error={addError} onCancel={() => setAdding(false)} onCreate={handleCreate} />}
     </div>
   );
 }
 
 function AddMailboxDialog({
+  error,
   onCancel,
   onCreate,
 }: {
+  error: string | null;
   onCancel: () => void;
   onCreate: (input: MailboxAccountInput) => void;
 }) {
@@ -208,7 +221,6 @@ function AddMailboxDialog({
       return;
     }
     onCreate(form);
-    onCancel();
   }
 
   return (
@@ -292,6 +304,8 @@ function AddMailboxDialog({
             />
           </Field>
         </div>
+
+        {error && <p className="text-[12px] text-red-400 mt-3">{error}</p>}
 
         <div className="flex items-center justify-end gap-2 mt-5">
           <button

@@ -99,59 +99,68 @@ function NewFieldRow({ objectType, onDone }: { objectType: ObjectType; onDone: (
   const [label, setLabel] = useState("");
   const [type, setType] = useState<CustomFieldType>("TEXT");
   const [options, setOptions] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function submit() {
     if (!label.trim()) return onDone();
+    setError(null);
     startTransition(async () => {
-      await createFieldDefinition(
-        objectType,
-        label,
-        type,
-        type === "SELECT" ? options.split(",").map((o) => o.trim()).filter(Boolean) : undefined
-      );
-      onDone();
+      try {
+        await createFieldDefinition(
+          objectType,
+          label,
+          type,
+          type === "SELECT" ? options.split(",").map((o) => o.trim()).filter(Boolean) : undefined
+        );
+        onDone();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     });
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 text-[13px]">
-      <input
-        autoFocus
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-        placeholder="Field name"
-        className="flex-1 min-w-0 bg-transparent outline-none border-b border-border placeholder:text-subtle"
-      />
-      <select
-        value={type}
-        onChange={(e) => setType(e.target.value as CustomFieldType)}
-        className="bg-transparent outline-none border-b border-border text-subtle"
-      >
-        {Object.entries(TYPE_LABELS).map(([value, text]) => (
-          <option key={value} value={value} className="bg-background text-foreground">
-            {text}
-          </option>
-        ))}
-      </select>
-      {type === "SELECT" && (
+    <div className="px-3 py-2">
+      <div className="flex items-center gap-2 text-[13px]">
         <input
-          value={options}
-          onChange={(e) => setOptions(e.target.value)}
-          placeholder="Option A, Option B"
-          className="w-40 bg-transparent outline-none border-b border-border placeholder:text-subtle"
+          autoFocus
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Field name"
+          className="flex-1 min-w-0 bg-transparent outline-none border-b border-border placeholder:text-subtle"
         />
-      )}
-      <button
-        onClick={submit}
-        disabled={pending}
-        className="px-2 py-1 rounded-md bg-foreground text-background text-[12px] disabled:opacity-50"
-      >
-        Add
-      </button>
-      <button onClick={onDone} className="p-1 text-subtle hover:text-foreground transition-colors">
-        <X size={14} strokeWidth={1.75} />
-      </button>
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as CustomFieldType)}
+          className="bg-transparent outline-none border-b border-border text-subtle"
+        >
+          {Object.entries(TYPE_LABELS).map(([value, text]) => (
+            <option key={value} value={value} className="bg-background text-foreground">
+              {text}
+            </option>
+          ))}
+        </select>
+        {type === "SELECT" && (
+          <input
+            value={options}
+            onChange={(e) => setOptions(e.target.value)}
+            placeholder="Option A, Option B"
+            className="w-40 bg-transparent outline-none border-b border-border placeholder:text-subtle"
+          />
+        )}
+        <button
+          onClick={submit}
+          disabled={pending}
+          className="px-2 py-1 rounded-md bg-foreground text-background text-[12px] disabled:opacity-50"
+        >
+          Add
+        </button>
+        <button onClick={onDone} className="p-1 text-subtle hover:text-foreground transition-colors">
+          <X size={14} strokeWidth={1.75} />
+        </button>
+      </div>
+      {error && <p className="text-[12px] text-red-400 mt-1.5">{error}</p>}
     </div>
   );
 }

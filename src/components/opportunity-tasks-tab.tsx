@@ -18,6 +18,7 @@ export function OpportunityTasksTab({
   tasks: TaskWithDeals[];
 }) {
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function toggle(id: string) {
@@ -26,17 +27,23 @@ export function OpportunityTasksTab({
 
   function addTask(draft: NewTaskDraft) {
     if (!personId) return;
-    startTransition(() =>
-      createTask({
-        personId,
-        title: draft.title,
-        description: draft.description,
-        type: draft.type,
-        due: draft.due,
-        priority: draft.priority,
-        opportunityIds: [opportunityId],
-      })
-    );
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createTask({
+          personId,
+          title: draft.title,
+          description: draft.description,
+          type: draft.type,
+          due: draft.due,
+          priority: draft.priority,
+          opportunityIds: [opportunityId],
+        });
+        setCreating(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
+    });
   }
 
   return (
@@ -53,6 +60,8 @@ export function OpportunityTasksTab({
           New task
         </button>
       </div>
+
+      {error && <p className="text-[12px] text-red-400 mb-3">{error}</p>}
 
       {tasks.length === 0 ? (
         <p className="text-[13px] text-subtle">No tasks linked to this deal yet.</p>
