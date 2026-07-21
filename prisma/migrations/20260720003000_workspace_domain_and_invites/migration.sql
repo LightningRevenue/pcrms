@@ -1,9 +1,9 @@
 
 -- AlterTable
-ALTER TABLE "User" ADD COLUMN     "passwordHash" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordHash" TEXT;
 
 -- AlterTable
-ALTER TABLE "Workspace" ADD COLUMN     "emailDomain" TEXT;
+ALTER TABLE "Workspace" ADD COLUMN IF NOT EXISTS "emailDomain" TEXT;
 
 -- Backfill: derive each existing workspace's domain from its earliest member's email
 UPDATE "Workspace" w
@@ -21,7 +21,7 @@ WHERE w.id = sub."workspaceId" AND w."emailDomain" IS NULL;
 ALTER TABLE "Workspace" ALTER COLUMN "emailDomain" SET NOT NULL;
 
 -- CreateTable
-CREATE TABLE "WorkspaceInvite" (
+CREATE TABLE IF NOT EXISTS "WorkspaceInvite" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'member',
@@ -36,20 +36,22 @@ CREATE TABLE "WorkspaceInvite" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "WorkspaceInvite_token_key" ON "WorkspaceInvite"("token");
+CREATE UNIQUE INDEX IF NOT EXISTS "WorkspaceInvite_token_key" ON "WorkspaceInvite"("token");
 
 -- CreateIndex
-CREATE INDEX "WorkspaceInvite_workspaceId_idx" ON "WorkspaceInvite"("workspaceId");
+CREATE INDEX IF NOT EXISTS "WorkspaceInvite_workspaceId_idx" ON "WorkspaceInvite"("workspaceId");
 
 -- CreateIndex
-CREATE INDEX "WorkspaceInvite_email_idx" ON "WorkspaceInvite"("email");
+CREATE INDEX IF NOT EXISTS "WorkspaceInvite_email_idx" ON "WorkspaceInvite"("email");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Workspace_emailDomain_key" ON "Workspace"("emailDomain");
+CREATE UNIQUE INDEX IF NOT EXISTS "Workspace_emailDomain_key" ON "Workspace"("emailDomain");
 
 -- AddForeignKey
+ALTER TABLE "WorkspaceInvite" DROP CONSTRAINT IF EXISTS "WorkspaceInvite_workspaceId_fkey";
 ALTER TABLE "WorkspaceInvite" ADD CONSTRAINT "WorkspaceInvite_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "WorkspaceInvite" DROP CONSTRAINT IF EXISTS "WorkspaceInvite_invitedById_fkey";
 ALTER TABLE "WorkspaceInvite" ADD CONSTRAINT "WorkspaceInvite_invitedById_fkey" FOREIGN KEY ("invitedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
