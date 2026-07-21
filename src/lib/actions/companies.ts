@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace, companyVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { COMPANY_FIELD_LABELS } from "@/lib/field-labels";
 
@@ -18,44 +18,43 @@ const FIELD_LABELS = COMPANY_FIELD_LABELS;
 export type CompanyField = keyof typeof FIELD_LABELS;
 
 export async function createCompany(input: CreateCompanyInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const name = input.name.trim();
   if (!name) throw new Error("Name is required");
 
   const company = await db.company.create({
     data: {
+      workspaceId,
       name,
       domain: input.domain?.trim() || null,
       address: input.address?.trim() || null,
       linkedin: input.linkedin?.trim() || null,
       annualRevenue: input.annualRevenue?.trim() || null,
-      createdById: session.user.id,
+      createdById: userId,
     },
   });
 
   await db.activity.create({
-    data: { entityType: "company", entityId: company.id, kind: "created", actorId: session.user.id },
+    data: { workspaceId, entityType: "company", entityId: company.id, kind: "created", actorId: userId },
   });
 
   revalidatePath("/companies");
 }
 
 export async function deleteCompanies(ids: string[]) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
   if (ids.length === 0) return { deleted: 0, skipped: 0 };
 
   const blocked = await db.person.findMany({
-    where: { companyId: { in: ids } },
+    where: { workspaceId, companyId: { in: ids }, deletedAt: null },
     select: { companyId: true },
     distinct: ["companyId"],
   });
   const blockedByPeople = new Set(blocked.map((p) => p.companyId));
 
   const blockedByOpportunities = await db.opportunity.findMany({
-    where: { companyId: { in: ids } },
+    where: { workspaceId, companyId: { in: ids }, deletedAt: null },
     select: { companyId: true },
     distinct: ["companyId"],
   });
@@ -63,7 +62,12 @@ export async function deleteCompanies(ids: string[]) {
 
   const deletable = ids.filter((id) => !blockedByPeople.has(id));
 
-  const { count } = await db.company.deleteMany({ where: { id: { in: deletable } } });
+  // Soft delete — rows land in Trash for 30 days (owner/admin can restore) before the
+  // purge cron hard-deletes them. See settings/trash and lib/actions/trash.ts.
+  const { count } = await db.company.updateMany({
+    where: { workspaceId, id: { in: deletable } },
+    data: { deletedAt: new Date() },
+  });
 
   revalidatePath("/companies");
   return { deleted: count, skipped: ids.length - deletable.length };
@@ -73,10 +77,11 @@ export async function deleteCompanies(ids: string[]) {
 // (people/opportunities pointing at it block the delete above), so there's nothing to fan out to.
 
 export async function searchCompanies(query: string) {
+  const ctx = await requireWorkspace();
   const q = query.trim();
   if (!q) return [];
   return db.company.findMany({
-    where: { name: { contains: q, mode: "insensitive" } },
+    where: { workspaceId: ctx.workspaceId, name: { contains: q, mode: "insensitive" }, ...companyVisibilityFilter(ctx) },
     orderBy: { name: "asc" },
     take: 8,
     select: { id: true, name: true },
@@ -84,37 +89,38 @@ export async function searchCompanies(query: string) {
 }
 
 export async function linkPersonToCompany(companyId: string, personId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const [company, person] = await Promise.all([
-    db.company.findUniqueOrThrow({ where: { id: companyId } }),
-    db.person.findUniqueOrThrow({ where: { id: personId }, include: { company: true } }),
+    db.company.findUniqueOrThrow({ where: { id: companyId, workspaceId } }),
+    db.person.findUniqueOrThrow({ where: { id: personId, workspaceId }, include: { company: true } }),
   ]);
 
   const oldValue = person.company?.name ?? "";
   if (oldValue === company.name) return;
 
-  await db.person.update({ where: { id: personId }, data: { companyId } });
+  await db.person.update({ where: { id: personId, workspaceId }, data: { companyId } });
 
   const personName = [person.firstName, person.lastName].filter(Boolean).join(" ");
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: personId,
       field: "Company",
       oldValue: oldValue || null,
       newValue: company.name,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "company",
       entityId: companyId,
       field: "Person",
       newValue: personName,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 
@@ -124,35 +130,36 @@ export async function linkPersonToCompany(companyId: string, personId: string) {
 }
 
 export async function unlinkPersonFromCompany(companyId: string, personId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const [company, person] = await Promise.all([
-    db.company.findUniqueOrThrow({ where: { id: companyId } }),
-    db.person.findUniqueOrThrow({ where: { id: personId } }),
+    db.company.findUniqueOrThrow({ where: { id: companyId, workspaceId } }),
+    db.person.findUniqueOrThrow({ where: { id: personId, workspaceId } }),
   ]);
 
-  await db.person.update({ where: { id: personId }, data: { companyId: null } });
+  await db.person.update({ where: { id: personId, workspaceId }, data: { companyId: null } });
 
   const personName = [person.firstName, person.lastName].filter(Boolean).join(" ");
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: personId,
       field: "Company",
       oldValue: company.name,
       newValue: null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "company",
       entityId: companyId,
       field: "Person",
       oldValue: personName,
       newValue: null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 
@@ -162,25 +169,25 @@ export async function unlinkPersonFromCompany(companyId: string, personId: strin
 }
 
 export async function updateCompanyField(companyId: string, field: CompanyField, rawValue: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const value = rawValue.trim();
   if (field === "name" && !value) throw new Error("Name is required");
 
-  const current = await db.company.findUniqueOrThrow({ where: { id: companyId } });
+  const current = await db.company.findUniqueOrThrow({ where: { id: companyId, workspaceId } });
   const oldValue = current[field] ?? "";
   if (oldValue === value) return;
 
-  await db.company.update({ where: { id: companyId }, data: { [field]: value || null } });
+  await db.company.update({ where: { id: companyId, workspaceId }, data: { [field]: value || null } });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "company",
       entityId: companyId,
       field: FIELD_LABELS[field],
       oldValue: oldValue || null,
       newValue: value || null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 

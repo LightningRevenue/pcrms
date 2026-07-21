@@ -28,6 +28,7 @@ import {
   BellRing,
   Phone,
   BookOpenCheck,
+  Trash2,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -61,6 +62,7 @@ const SECTIONS = [
       { href: "/settings/apps", label: "Apps", icon: Grid3x3 },
       { href: "/settings/ai", label: "AI", icon: Sparkles },
       { href: "/settings/cron-jobs", label: "Cron Jobs", icon: Clock },
+      { href: "/settings/trash", label: "Trash", icon: Trash2 },
       { href: "/settings/tracking", label: "Email Tracking", icon: Radar },
       { href: "/settings/email-notifications", label: "Email Notifications", icon: BellRing },
     ],

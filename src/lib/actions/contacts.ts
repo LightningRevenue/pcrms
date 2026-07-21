@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
 import { PERSON_FIELD_LABELS } from "@/lib/field-labels";
 
@@ -20,16 +20,15 @@ const FIELD_LABELS = PERSON_FIELD_LABELS;
 
 export type PersonField = keyof typeof FIELD_LABELS;
 
-async function resolveCompanyId(name: string, domain?: string | null) {
+async function resolveCompanyId(workspaceId: string, name: string, domain?: string | null) {
   const company =
-    (await db.company.findFirst({ where: { name } })) ??
-    (await db.company.create({ data: { name, domain: domain || null } }));
+    (await db.company.findFirst({ where: { workspaceId, name } })) ??
+    (await db.company.create({ data: { workspaceId, name, domain: domain || null } }));
   return company.id;
 }
 
 export async function createContact(input: CreateContactInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const firstName = input.firstName.trim();
   if (!firstName) throw new Error("First name is required");
@@ -37,10 +36,11 @@ export async function createContact(input: CreateContactInput) {
   const email = input.email?.trim() || null;
   const companyName = input.company?.trim() || (email ? deriveCompanyNameFromEmail(email) : null);
   const emailDomain = email && !input.company?.trim() ? email.split("@")[1]?.toLowerCase().trim() : null;
-  const companyId = companyName ? await resolveCompanyId(companyName, emailDomain) : undefined;
+  const companyId = companyName ? await resolveCompanyId(workspaceId, companyName, emailDomain) : undefined;
 
   const person = await db.person.create({
     data: {
+      workspaceId,
       firstName,
       lastName: input.lastName?.trim() || null,
       email: input.email?.trim() || null,
@@ -48,24 +48,23 @@ export async function createContact(input: CreateContactInput) {
       jobTitle: input.jobTitle?.trim() || null,
       linkedin: input.linkedin?.trim() || null,
       companyId,
-      createdById: session.user.id,
+      createdById: userId,
     },
   });
 
   await db.activity.create({
-    data: { entityType: "person", entityId: person.id, kind: "created", actorId: session.user.id },
+    data: { workspaceId, entityType: "person", entityId: person.id, kind: "created", actorId: userId },
   });
 
   revalidatePath("/contacts");
 }
 
 export async function deleteContacts(ids: string[]) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
   if (ids.length === 0) return { deleted: 0, skipped: 0 };
 
   const blocked = await db.opportunity.findMany({
-    where: { contactId: { in: ids } },
+    where: { workspaceId, contactId: { in: ids }, deletedAt: null },
     select: { contactId: true },
     distinct: ["contactId"],
   });
@@ -74,11 +73,16 @@ export async function deleteContacts(ids: string[]) {
   const deletable = ids.filter((id) => !blockedIds.has(id));
 
   const people = await db.person.findMany({
-    where: { id: { in: deletable } },
+    where: { workspaceId, id: { in: deletable } },
     select: { id: true, firstName: true, lastName: true, companyId: true },
   });
 
-  const { count } = await db.person.deleteMany({ where: { id: { in: deletable } } });
+  // Soft delete — rows land in Trash for 30 days (owner/admin can restore) before the
+  // purge cron hard-deletes them. See settings/trash and lib/actions/trash.ts.
+  const { count } = await db.person.updateMany({
+    where: { workspaceId, id: { in: deletable } },
+    data: { deletedAt: new Date() },
+  });
 
   await Promise.all(
     people
@@ -86,12 +90,13 @@ export async function deleteContacts(ids: string[]) {
       .map((p) =>
         db.activity.create({
           data: {
+            workspaceId,
             entityType: "company",
             entityId: p.companyId!,
             kind: "person_removed",
             field: "Person",
             oldValue: [p.firstName, p.lastName].filter(Boolean).join(" "),
-            actorId: session.user!.id,
+            actorId: userId,
           },
         })
       )
@@ -102,10 +107,13 @@ export async function deleteContacts(ids: string[]) {
 }
 
 export async function searchPeople(query: string) {
+  const ctx = await requireWorkspace();
   const q = query.trim();
   if (!q) return [];
   const people = await db.person.findMany({
     where: {
+      workspaceId: ctx.workspaceId,
+      ...personVisibilityFilter(ctx),
       OR: [
         { firstName: { contains: q, mode: "insensitive" } },
         { lastName: { contains: q, mode: "insensitive" } },
@@ -119,10 +127,9 @@ export async function searchPeople(query: string) {
 }
 
 export async function setPersonOwner(personId: string, ownerId: string | null) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
-  const current = await db.person.findUniqueOrThrow({ where: { id: personId }, include: { owner: true } });
+  const current = await db.person.findUniqueOrThrow({ where: { id: personId, workspaceId }, include: { owner: true } });
   const oldValue = current.owner?.name ?? current.owner?.email ?? "";
 
   const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
@@ -133,12 +140,13 @@ export async function setPersonOwner(personId: string, ownerId: string | null) {
   await db.person.update({ where: { id: personId }, data: { ownerId } });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: personId,
       field: "Owner",
       oldValue: oldValue || null,
       newValue: newValue || null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 
@@ -146,13 +154,12 @@ export async function setPersonOwner(personId: string, ownerId: string | null) {
 }
 
 export async function setPersonOwners(personIds: string[], ownerId: string | null) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
   const newValue = next?.name ?? next?.email ?? "";
 
-  const current = await db.person.findMany({ where: { id: { in: personIds } }, include: { owner: true } });
+  const current = await db.person.findMany({ where: { workspaceId, id: { in: personIds } }, include: { owner: true } });
 
   for (const person of current) {
     const oldValue = person.owner?.name ?? person.owner?.email ?? "";
@@ -161,12 +168,13 @@ export async function setPersonOwners(personIds: string[], ownerId: string | nul
     await db.person.update({ where: { id: person.id }, data: { ownerId } });
     await db.activity.create({
       data: {
+        workspaceId,
         entityType: "person",
         entityId: person.id,
         field: "Owner",
         oldValue: oldValue || null,
         newValue: newValue || null,
-        actorId: session.user.id,
+        actorId: userId,
       },
     });
   }
@@ -175,11 +183,10 @@ export async function setPersonOwners(personIds: string[], ownerId: string | nul
 }
 
 export async function setPersonCompany(personId: string, company: { id: string } | { name: string } | null) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const current = await db.person.findUniqueOrThrow({
-    where: { id: personId },
+    where: { id: personId, workspaceId },
     include: { company: true },
   });
   const oldValue = current.company?.name ?? "";
@@ -187,15 +194,15 @@ export async function setPersonCompany(personId: string, company: { id: string }
   let companyId: string | null = null;
   let newValue = "";
   if (company && "id" in company) {
-    const found = await db.company.findUniqueOrThrow({ where: { id: company.id } });
+    const found = await db.company.findUniqueOrThrow({ where: { id: company.id, workspaceId } });
     companyId = found.id;
     newValue = found.name;
   } else if (company && "name" in company) {
     const created = await db.company.create({
-      data: { name: company.name.trim(), createdById: session.user.id },
+      data: { workspaceId, name: company.name.trim(), createdById: userId },
     });
     await db.activity.create({
-      data: { entityType: "company", entityId: created.id, kind: "created", actorId: session.user.id },
+      data: { workspaceId, entityType: "company", entityId: created.id, kind: "created", actorId: userId },
     });
     companyId = created.id;
     newValue = created.name;
@@ -206,12 +213,13 @@ export async function setPersonCompany(personId: string, company: { id: string }
   await db.person.update({ where: { id: personId }, data: { companyId } });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: personId,
       field: FIELD_LABELS.company,
       oldValue: oldValue || null,
       newValue: newValue || null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 
@@ -221,32 +229,32 @@ export async function setPersonCompany(personId: string, company: { id: string }
 }
 
 export async function updatePersonField(personId: string, field: Exclude<PersonField, "company">, rawValue: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const value = rawValue.trim();
 
   if (field === "firstName" && !value) throw new Error("First name is required");
 
-  const current = await db.person.findUniqueOrThrow({ where: { id: personId } });
+  const current = await db.person.findUniqueOrThrow({ where: { id: personId, workspaceId } });
   const oldValue = current[field] ?? "";
   if (oldValue === value) return;
 
   const data: Record<string, string | null> = { [field]: value || null };
   if (field === "email" && value && !current.companyId) {
     const derivedName = deriveCompanyNameFromEmail(value);
-    if (derivedName) data.companyId = await resolveCompanyId(derivedName, value.split("@")[1]?.toLowerCase().trim());
+    if (derivedName) data.companyId = await resolveCompanyId(workspaceId, derivedName, value.split("@")[1]?.toLowerCase().trim());
   }
 
   await db.person.update({ where: { id: personId }, data });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: personId,
       field: FIELD_LABELS[field],
       oldValue: oldValue || null,
       newValue: value || null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 

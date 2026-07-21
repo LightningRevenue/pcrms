@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace, opportunityVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export type OpportunityStage = string;
@@ -14,53 +14,56 @@ export type ConvertToOpportunityInput = {
 };
 
 export async function convertContactToOpportunity(input: ConvertToOpportunityInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const name = input.name.trim();
   if (!name) throw new Error("Deal name is required");
 
-  const contact = await db.person.findUniqueOrThrow({ where: { id: input.personId } });
+  const contact = await db.person.findUniqueOrThrow({ where: { id: input.personId, workspaceId } });
 
   const opportunity = await db.opportunity.create({
     data: {
+      workspaceId,
       name,
       stage: input.stage,
       value: input.value,
       companyId: contact.companyId,
       contactId: contact.id,
-      ownerId: session.user.id,
-      createdById: session.user.id,
+      ownerId: userId,
+      createdById: userId,
     },
   });
 
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "opportunity",
       entityId: opportunity.id,
       kind: "created",
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "person",
       entityId: contact.id,
       kind: "opportunity_created",
       field: "Opportunity",
       newValue: name,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
   if (contact.companyId) {
     await db.activity.create({
       data: {
+        workspaceId,
         entityType: "company",
         entityId: contact.companyId,
         kind: "opportunity_created",
         field: "Opportunity",
         newValue: name,
-        actorId: session.user.id,
+        actorId: userId,
       },
     });
   }
@@ -72,45 +75,56 @@ export async function convertContactToOpportunity(input: ConvertToOpportunityInp
 }
 
 export async function listOpportunitiesForPerson(personId: string) {
-  return db.opportunity.findMany({ where: { contactId: personId }, orderBy: { createdAt: "desc" } });
+  const ctx = await requireWorkspace();
+  return db.opportunity.findMany({
+    where: { workspaceId: ctx.workspaceId, contactId: personId, ...opportunityVisibilityFilter(ctx) },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 export async function listOpportunitiesForCompany(companyId: string) {
-  return db.opportunity.findMany({ where: { companyId }, orderBy: { createdAt: "desc" } });
+  const ctx = await requireWorkspace();
+  return db.opportunity.findMany({
+    where: { workspaceId: ctx.workspaceId, companyId, ...opportunityVisibilityFilter(ctx) },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 export async function listOpportunities() {
+  const ctx = await requireWorkspace();
   return db.opportunity.findMany({
+    where: { workspaceId: ctx.workspaceId, ...opportunityVisibilityFilter(ctx) },
     include: { company: true, contact: true, owner: true, createdBy: true },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getOpportunity(id: string) {
+  const ctx = await requireWorkspace();
   return db.opportunity.findUnique({
-    where: { id },
+    where: { id, workspaceId: ctx.workspaceId, ...opportunityVisibilityFilter(ctx) },
     include: { company: true, contact: true, owner: true, createdBy: true },
   });
 }
 
 export async function moveOpportunityStage(id: string, stage: OpportunityStage) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
-  const current = await db.opportunity.findUniqueOrThrow({ where: { id } });
+  const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId } });
   if (current.stage === stage) return;
 
-  const target = await db.pipelineStage.findUnique({ where: { label: stage } });
+  const target = await db.pipelineStage.findUnique({ where: { workspaceId_label: { workspaceId, label: stage } } });
   const closeDate = !target || target.outcome === "open" ? null : new Date();
 
-  await db.opportunity.update({ where: { id }, data: { stage, closeDate } });
+  await db.opportunity.update({ where: { id, workspaceId }, data: { stage, closeDate } });
 
   const activityData = {
+    workspaceId,
     kind: "stage_changed",
     field: "Stage",
     oldValue: current.stage,
     newValue: stage,
-    actorId: session.user.id,
+    actorId: userId,
   };
   await db.activity.create({ data: { entityType: "opportunity", entityId: id, ...activityData } });
   if (current.contactId) {
@@ -125,10 +139,9 @@ export async function moveOpportunityStage(id: string, stage: OpportunityStage) 
 }
 
 export async function setOpportunityOwner(id: string, ownerId: string | null) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
-  const current = await db.opportunity.findUniqueOrThrow({ where: { id }, include: { owner: true } });
+  const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId }, include: { owner: true } });
   const oldValue = current.owner?.name ?? current.owner?.email ?? "";
 
   const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
@@ -136,15 +149,16 @@ export async function setOpportunityOwner(id: string, ownerId: string | null) {
 
   if (oldValue === newValue) return;
 
-  await db.opportunity.update({ where: { id }, data: { ownerId } });
+  await db.opportunity.update({ where: { id, workspaceId }, data: { ownerId } });
   await db.activity.create({
     data: {
+      workspaceId,
       entityType: "opportunity",
       entityId: id,
       field: "Owner",
       oldValue: oldValue || null,
       newValue: newValue || null,
-      actorId: session.user.id,
+      actorId: userId,
     },
   });
 
@@ -153,10 +167,11 @@ export async function setOpportunityOwner(id: string, ownerId: string | null) {
 }
 
 export async function deleteOpportunity(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  const opportunity = await db.opportunity.delete({ where: { id } });
+  // Soft delete — lands in Trash for 30 days (owner/admin can restore) before the purge
+  // cron hard-deletes it. See settings/trash and lib/actions/trash.ts.
+  const opportunity = await db.opportunity.update({ where: { id, workspaceId }, data: { deletedAt: new Date() } });
 
   if (opportunity.contactId) revalidatePath(`/contacts/${opportunity.contactId}`);
   if (opportunity.companyId) revalidatePath(`/companies/${opportunity.companyId}`);

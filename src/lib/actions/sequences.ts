@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 
 export type SequenceStepType = "email" | "task" | "note";
@@ -21,23 +21,27 @@ export type SequenceStepInput = {
 };
 
 export async function listSequences() {
+  const { workspaceId } = await requireWorkspace();
   return db.sequence.findMany({
+    where: { workspaceId },
     include: { createdBy: true, _count: { select: { steps: true, enrollments: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function listActiveSequencesForEnrollment() {
+  const { workspaceId } = await requireWorkspace();
   return db.sequence.findMany({
-    where: { active: true, steps: { some: {} } },
+    where: { workspaceId, active: true, steps: { some: {} } },
     include: { _count: { select: { steps: true } } },
     orderBy: { name: "asc" },
   });
 }
 
 export async function getSequence(id: string) {
+  const { workspaceId } = await requireWorkspace();
   return db.sequence.findUnique({
-    where: { id },
+    where: { id, workspaceId },
     include: {
       steps: { orderBy: { order: "asc" }, include: { template: true } },
       enrollments: { include: { person: true }, orderBy: { enrolledAt: "desc" } },
@@ -46,47 +50,44 @@ export async function getSequence(id: string) {
 }
 
 export async function createSequence(name: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");
 
-  const sequence = await db.sequence.create({ data: { name: trimmed, createdById: session.user.id } });
+  const sequence = await db.sequence.create({ data: { workspaceId, name: trimmed, createdById: userId } });
   revalidatePath("/sequences");
   return sequence;
 }
 
 export async function toggleSequenceActive(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  const sequence = await db.sequence.findUniqueOrThrow({ where: { id } });
-  await db.sequence.update({ where: { id }, data: { active: !sequence.active } });
+  const sequence = await db.sequence.findUniqueOrThrow({ where: { id, workspaceId } });
+  await db.sequence.update({ where: { id, workspaceId }, data: { active: !sequence.active } });
   revalidatePath("/sequences");
   revalidatePath(`/sequences/${id}`);
 }
 
 export async function deleteSequence(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.sequence.delete({ where: { id } });
+  await db.sequence.delete({ where: { id, workspaceId } });
   revalidatePath("/sequences");
 }
 
 export async function addSequenceStep(sequenceId: string, input: SequenceStepInput) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   const last = await db.sequenceStep.findFirst({
-    where: { sequenceId },
+    where: { workspaceId, sequenceId },
     orderBy: { order: "desc" },
     select: { order: true },
   });
 
   const step = await db.sequenceStep.create({
     data: {
+      workspaceId,
       sequenceId,
       order: (last?.order ?? -1) + 1,
       type: input.type,
@@ -108,27 +109,24 @@ export async function addSequenceStep(sequenceId: string, input: SequenceStepInp
 }
 
 export async function deleteSequenceStep(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  const step = await db.sequenceStep.delete({ where: { id } });
+  const step = await db.sequenceStep.delete({ where: { id, workspaceId } });
   revalidatePath(`/sequences/${step.sequenceId}`);
 }
 
 export async function reorderSequenceSteps(sequenceId: string, orderedIds: string[]) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await Promise.all(orderedIds.map((id, i) => db.sequenceStep.update({ where: { id }, data: { order: i } })));
+  await Promise.all(orderedIds.map((id, i) => db.sequenceStep.update({ where: { id, workspaceId }, data: { order: i } })));
   revalidatePath(`/sequences/${sequenceId}`);
 }
 
 export async function enrollPersonInSequence(sequenceId: string, personId: string, startAt?: Date) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const [sequence, existing] = await Promise.all([
-    db.sequence.findUniqueOrThrow({ where: { id: sequenceId }, include: { steps: true } }),
+    db.sequence.findUniqueOrThrow({ where: { id: sequenceId, workspaceId }, include: { steps: true } }),
     db.sequenceEnrollment.findUnique({ where: { sequenceId_personId: { sequenceId, personId } } }),
   ]);
   if (existing) throw new Error("Contact is already enrolled in this sequence");
@@ -136,11 +134,12 @@ export async function enrollPersonInSequence(sequenceId: string, personId: strin
 
   const runsFrom = startAt ?? new Date();
   const enrollment = await db.sequenceEnrollment.create({
-    data: { sequenceId, personId, enrolledById: session.user.id },
+    data: { workspaceId, sequenceId, personId, enrolledById: userId },
   });
 
   await db.sequenceStepRun.createMany({
     data: sequence.steps.map((step) => ({
+      workspaceId,
       enrollmentId: enrollment.id,
       stepId: step.id,
       scheduledFor: new Date(runsFrom.getTime() + (step.delayDays * 24 + step.delayHours) * 60 * 60 * 1000),
@@ -166,11 +165,14 @@ export async function enrollPeopleInSequence(sequenceId: string, personIds: stri
 }
 
 export async function searchPeopleForSequence(sequenceId: string, query: string) {
+  const { workspaceId } = await requireWorkspace();
   const q = query.trim();
   if (!q) return [];
 
   const people = await db.person.findMany({
     where: {
+      workspaceId,
+      deletedAt: null,
       OR: [
         { firstName: { contains: q, mode: "insensitive" } },
         { lastName: { contains: q, mode: "insensitive" } },
@@ -183,7 +185,7 @@ export async function searchPeopleForSequence(sequenceId: string, query: string)
   });
 
   const enrolled = await db.sequenceEnrollment.findMany({
-    where: { sequenceId, personId: { in: people.map((p) => p.id) } },
+    where: { workspaceId, sequenceId, personId: { in: people.map((p) => p.id) } },
     select: { personId: true },
   });
   const enrolledIds = new Set(enrolled.map((e) => e.personId));
@@ -197,15 +199,14 @@ export async function searchPeopleForSequence(sequenceId: string, query: string)
 }
 
 export async function cancelEnrollment(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   const enrollment = await db.sequenceEnrollment.update({
-    where: { id },
+    where: { id, workspaceId },
     data: { status: "cancelled", completedAt: new Date() },
   });
   await db.sequenceStepRun.updateMany({
-    where: { enrollmentId: id, status: "pending" },
+    where: { workspaceId, enrollmentId: id, status: "pending" },
     data: { status: "skipped" },
   });
 
@@ -214,8 +215,9 @@ export async function cancelEnrollment(id: string) {
 }
 
 export async function listSequencesForPerson(personId: string) {
+  const { workspaceId } = await requireWorkspace();
   return db.sequenceEnrollment.findMany({
-    where: { personId },
+    where: { workspaceId, personId },
     include: { sequence: true },
     orderBy: { enrolledAt: "desc" },
   });

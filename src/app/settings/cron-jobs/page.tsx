@@ -1,11 +1,19 @@
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { CronJobPanel } from "@/components/cron-job-panel";
-import { listCronJobRuns, runGmailSyncNow, runSequenceStepsNow } from "@/lib/actions/cron-jobs";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
+import { listCronJobRuns, runGmailSyncNow, runSequenceStepsNow, runTrashPurgeNow } from "@/lib/actions/cron-jobs";
 
 export default async function CronJobsPage() {
-  const [gmailRuns, sequenceRuns] = await Promise.all([
+  const session = await auth();
+  if (session?.user?.role !== "owner") {
+    return <RestrictedSettingsPage crumbs={["Workspace", "Cron Jobs"]} requiredRole="owner" />;
+  }
+
+  const [gmailRuns, sequenceRuns, trashRuns] = await Promise.all([
     listCronJobRuns("gmail-reply-sync"),
     listCronJobRuns("sequence-step-runner"),
+    listCronJobRuns("trash-purge"),
   ]);
 
   return (
@@ -32,6 +40,16 @@ export default async function CronJobsPage() {
             countLabel="Steps executed"
             runs={sequenceRuns}
             onRunNow={runSequenceStepsNow}
+          />
+        </div>
+
+        <div className="mt-10">
+          <CronJobPanel
+            title="trash-purge"
+            description="Permanently deletes companies/contacts/opportunities that have sat in Trash for 30+ days, once a day."
+            countLabel="Rows purged"
+            runs={trashRuns}
+            onRunNow={runTrashPurgeNow}
           />
         </div>
       </div>

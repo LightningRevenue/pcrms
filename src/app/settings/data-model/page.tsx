@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { DataModelDiagram } from "@/components/data-model-diagram";
+import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { db } from "@/lib/db";
 import { listFieldDefinitions } from "@/lib/actions/custom-fields";
+import { requireWorkspace } from "@/lib/workspace";
 import {
   Search,
   SlidersHorizontal,
@@ -28,11 +31,18 @@ const MOCK_OBJECTS = [
 ];
 
 export default async function DataModelPage() {
+  const session = await auth();
+  if (session?.user?.role !== "owner" && session?.user?.role !== "admin") {
+    return <RestrictedSettingsPage crumbs={["Workspace", "Data model"]} requiredRole="admin" />;
+  }
+
+  const { workspaceId } = await requireWorkspace();
+
   const [companyCustomFields, personCustomFields, companyCount, personCount] = await Promise.all([
     listFieldDefinitions("company"),
     listFieldDefinitions("person"),
-    db.company.count(),
-    db.person.count(),
+    db.company.count({ where: { workspaceId, deletedAt: null } }),
+    db.person.count({ where: { workspaceId, deletedAt: null } }),
   ]);
 
   const objects = [

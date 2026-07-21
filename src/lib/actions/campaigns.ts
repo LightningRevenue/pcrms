@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { campaignQueue } from "@/lib/campaign-queue";
 
@@ -10,15 +10,18 @@ const MIN_SEND_GAP_MS = 30_000;
 const MAX_SEND_GAP_MS = 60_000;
 
 export async function listCampaigns() {
+  const { workspaceId } = await requireWorkspace();
   return db.campaign.findMany({
+    where: { workspaceId },
     include: { createdBy: true, _count: { select: { members: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getCampaign(id: string) {
+  const { workspaceId } = await requireWorkspace();
   return db.campaign.findUnique({
-    where: { id },
+    where: { id, workspaceId },
     include: {
       members: {
         include: { person: { include: { company: true } } },
@@ -34,37 +37,35 @@ export async function getCampaign(id: string) {
 }
 
 export async function createCampaign(name: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Name is required");
 
   const campaign = await db.campaign.create({
-    data: { name: trimmed, createdById: session.user.id },
+    data: { workspaceId, name: trimmed, createdById: userId },
   });
   revalidatePath("/marketing/campaigns");
   return campaign;
 }
 
 export async function deleteCampaign(id: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.campaign.delete({ where: { id } });
+  await db.campaign.delete({ where: { id, workspaceId } });
   revalidatePath("/marketing/campaigns");
 }
 
 // A person is off-limits for a new bulk send if they're already being worked by any
 // active flow — an in-progress Sequence, or membership in another non-draft Campaign.
-async function findUnavailablePersonIds(): Promise<Set<string>> {
+async function findUnavailablePersonIds(workspaceId: string): Promise<Set<string>> {
   const [sequenceEnrollments, campaignMembers] = await Promise.all([
     db.sequenceEnrollment.findMany({
-      where: { status: "active" },
+      where: { workspaceId, status: "active" },
       select: { personId: true },
     }),
     db.campaignMember.findMany({
-      where: { campaign: { status: { in: ["active", "sent"] } } },
+      where: { workspaceId, campaign: { status: { in: ["active", "sent"] } } },
       select: { personId: true },
     }),
   ]);
@@ -84,23 +85,28 @@ export type CampaignPersonRow = {
 };
 
 export async function searchContactsForCampaign(campaignId: string, query: string): Promise<CampaignPersonRow[]> {
+  const { workspaceId } = await requireWorkspace();
   const [campaign, unavailable] = await Promise.all([
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId }, include: { members: true } }),
-    findUnavailablePersonIds(),
+    db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId }, include: { members: true } }),
+    findUnavailablePersonIds(workspaceId),
   ]);
   const inCampaignIds = new Set(campaign.members.map((m) => m.personId));
 
   const q = query.trim();
   const people = await db.person.findMany({
-    where: q
-      ? {
-          OR: [
-            { firstName: { contains: q, mode: "insensitive" } },
-            { lastName: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
-          ],
-        }
-      : {},
+    where: {
+      workspaceId,
+      deletedAt: null,
+      ...(q
+        ? {
+            OR: [
+              { firstName: { contains: q, mode: "insensitive" } },
+              { lastName: { contains: q, mode: "insensitive" } },
+              { email: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
     include: { company: true },
     orderBy: { firstName: "asc" },
     take: 30,
@@ -125,15 +131,18 @@ export type CampaignDealRow = {
 };
 
 export async function searchDealsForCampaign(campaignId: string, query: string): Promise<CampaignDealRow[]> {
+  const { workspaceId } = await requireWorkspace();
   const [campaign, unavailable] = await Promise.all([
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId }, include: { members: true } }),
-    findUnavailablePersonIds(),
+    db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId }, include: { members: true } }),
+    findUnavailablePersonIds(workspaceId),
   ]);
   const inCampaignIds = new Set(campaign.members.map((m) => m.personId));
 
   const q = query.trim();
   const deals = await db.opportunity.findMany({
     where: {
+      workspaceId,
+      deletedAt: null,
       contactId: { not: null },
       ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
     },
@@ -157,35 +166,32 @@ export async function searchDealsForCampaign(campaignId: string, query: string):
 }
 
 export async function addContactToCampaign(campaignId: string, personId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   await db.campaignMember.upsert({
     where: { campaignId_personId: { campaignId, personId } },
-    create: { campaignId, personId, addedById: session.user.id },
+    create: { workspaceId, campaignId, personId, addedById: userId },
     update: {},
   });
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
 export async function addDealToCampaign(campaignId: string, opportunityId: string, personId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   await db.campaignMember.upsert({
     where: { campaignId_personId: { campaignId, personId } },
-    create: { campaignId, personId, viaOpportunityId: opportunityId, addedById: session.user.id },
+    create: { workspaceId, campaignId, personId, viaOpportunityId: opportunityId, addedById: userId },
     update: {},
   });
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
 export async function addManyContactsToCampaign(campaignId: string, personIds: string[]) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   await db.campaignMember.createMany({
-    data: personIds.map((personId) => ({ campaignId, personId, addedById: session.user!.id })),
+    data: personIds.map((personId) => ({ workspaceId, campaignId, personId, addedById: userId })),
     skipDuplicates: true,
   });
   revalidatePath(`/marketing/campaigns/${campaignId}`);
@@ -195,15 +201,15 @@ export async function addManyDealsToCampaign(
   campaignId: string,
   deals: { opportunityId: string; personId: string }[]
 ) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { userId, workspaceId } = await requireWorkspace();
 
   await db.campaignMember.createMany({
     data: deals.map(({ opportunityId, personId }) => ({
+      workspaceId,
       campaignId,
       personId,
       viaOpportunityId: opportunityId,
-      addedById: session.user!.id,
+      addedById: userId,
     })),
     skipDuplicates: true,
   });
@@ -211,17 +217,17 @@ export async function addManyDealsToCampaign(
 }
 
 export async function removeMemberFromCampaign(campaignId: string, personId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.campaignMember.deleteMany({ where: { campaignId, personId } });
+  await db.campaignMember.deleteMany({ where: { workspaceId, campaignId, personId } });
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
 export async function getActiveMailboxAccountsForCampaign(campaignId: string) {
+  const { workspaceId } = await requireWorkspace();
   const [accounts, campaign] = await Promise.all([
-    db.mailboxAccount.findMany({ where: { active: true }, orderBy: { label: "asc" } }),
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId }, include: { mailboxes: true } }),
+    db.mailboxAccount.findMany({ where: { workspaceId, active: true }, orderBy: { label: "asc" } }),
+    db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId }, include: { mailboxes: true } }),
   ]);
   const selectedIds = new Set(campaign.mailboxes.map((m) => m.mailboxAccountId));
 
@@ -235,13 +241,12 @@ export async function getActiveMailboxAccountsForCampaign(campaignId: string) {
 }
 
 export async function setCampaignMailboxes(campaignId: string, mailboxAccountIds: string[]) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   await db.$transaction([
-    db.campaignMailbox.deleteMany({ where: { campaignId } }),
+    db.campaignMailbox.deleteMany({ where: { workspaceId, campaignId } }),
     db.campaignMailbox.createMany({
-      data: mailboxAccountIds.map((mailboxAccountId) => ({ campaignId, mailboxAccountId })),
+      data: mailboxAccountIds.map((mailboxAccountId) => ({ workspaceId, campaignId, mailboxAccountId })),
     }),
   ]);
   revalidatePath(`/marketing/campaigns/${campaignId}`);
@@ -256,9 +261,10 @@ export type CampaignTemplateOption = {
 };
 
 export async function listEmailTemplatesForCampaign(campaignId: string): Promise<CampaignTemplateOption[]> {
+  const { workspaceId } = await requireWorkspace();
   const [templates, campaign] = await Promise.all([
-    db.emailTemplate.findMany({ orderBy: { name: "asc" } }),
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId } }),
+    db.emailTemplate.findMany({ where: { workspaceId }, orderBy: { name: "asc" } }),
+    db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId } }),
   ]);
 
   return templates.map((t) => ({
@@ -271,10 +277,9 @@ export async function listEmailTemplatesForCampaign(campaignId: string): Promise
 }
 
 export async function setCampaignTemplate(campaignId: string, templateId: string | null) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
-  await db.campaign.update({ where: { id: campaignId }, data: { templateId } });
+  await db.campaign.update({ where: { id: campaignId, workspaceId }, data: { templateId } });
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
@@ -282,9 +287,10 @@ export async function setCampaignTemplate(campaignId: string, templateId: string
 // what the merge tokens will actually produce — falls back to the raw template if the
 // campaign has no members yet (nothing to interpolate against).
 export async function previewCampaignTemplate(campaignId: string, templateId: string) {
+  const { workspaceId } = await requireWorkspace();
   const [template, firstMember] = await Promise.all([
-    db.emailTemplate.findUniqueOrThrow({ where: { id: templateId } }),
-    db.campaignMember.findFirst({ where: { campaignId }, orderBy: { addedAt: "asc" } }),
+    db.emailTemplate.findUniqueOrThrow({ where: { id: templateId, workspaceId } }),
+    db.campaignMember.findFirst({ where: { workspaceId, campaignId }, orderBy: { addedAt: "asc" } }),
   ]);
 
   if (!firstMember) {
@@ -293,10 +299,10 @@ export async function previewCampaignTemplate(campaignId: string, templateId: st
 
   const { interpolateForPerson } = await import("@/lib/template-variables");
   const [subject, bodyHtml] = await Promise.all([
-    interpolateForPerson(template.subject, firstMember.personId),
-    interpolateForPerson(template.bodyHtml, firstMember.personId),
+    interpolateForPerson(template.subject, firstMember.personId, workspaceId),
+    interpolateForPerson(template.bodyHtml, firstMember.personId, workspaceId),
   ]);
-  const person = await db.person.findUnique({ where: { id: firstMember.personId } });
+  const person = await db.person.findUnique({ where: { id: firstMember.personId, workspaceId } });
   const previewedFor = person ? [person.firstName, person.lastName].filter(Boolean).join(" ") : null;
 
   return { subject, bodyHtml, previewedFor };
@@ -311,8 +317,9 @@ export type CampaignReadiness = {
 };
 
 export async function getCampaignReadiness(campaignId: string): Promise<CampaignReadiness> {
+  const { workspaceId } = await requireWorkspace();
   const campaign = await db.campaign.findUniqueOrThrow({
-    where: { id: campaignId },
+    where: { id: campaignId, workspaceId },
     include: { members: true, mailboxes: true, template: true },
   });
 
@@ -339,11 +346,10 @@ export async function getCampaignReadiness(campaignId: string): Promise<Campaign
 // selected mailboxes, each job delayed 30-60s after the previous one so the whole batch
 // trickles out over time instead of firing all at once.
 export async function startCampaign(campaignId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
+  const { workspaceId } = await requireWorkspace();
 
   const campaign = await db.campaign.findUniqueOrThrow({
-    where: { id: campaignId },
+    where: { id: campaignId, workspaceId },
     include: {
       members: { where: { sendStatus: "pending" } },
       mailboxes: true,
@@ -366,10 +372,10 @@ export async function startCampaign(campaignId: string) {
       { campaignMemberId: member.id, mailboxAccountId },
       { delay: Math.round(cumulativeDelay) }
     );
-    await db.campaignMember.update({ where: { id: member.id }, data: { sendStatus: "queued" } });
+    await db.campaignMember.update({ where: { id: member.id, workspaceId }, data: { sendStatus: "queued" } });
   }
 
-  await db.campaign.update({ where: { id: campaignId }, data: { status: "active" } });
+  await db.campaign.update({ where: { id: campaignId, workspaceId }, data: { status: "active" } });
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
@@ -396,8 +402,9 @@ export type CampaignProgress = {
 };
 
 export async function getCampaignProgress(campaignId: string): Promise<CampaignProgress> {
+  const { workspaceId } = await requireWorkspace();
   const members = await db.campaignMember.findMany({
-    where: { campaignId },
+    where: { workspaceId, campaignId },
     include: {
       person: true,
       emails: {
