@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Company, Opportunity, PipelineStage, Person, User } from "@prisma/client";
 import {
   KanbanSquare,
   ChevronDown,
-  ListFilter,
   ArrowUpDown,
   SlidersHorizontal,
   Plus,
@@ -19,6 +18,7 @@ import {
 } from "lucide-react";
 import { moveOpportunityStage } from "@/lib/actions/opportunities";
 import { CreateDealPanel } from "@/components/create-deal-panel";
+import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
 
 export type OpportunityStage = string;
 
@@ -85,16 +85,28 @@ function formatCloseDate(date: Date | null) {
 export function OpportunitiesView({
   opportunities: initial,
   stages,
+  users = [],
 }: {
   opportunities: OpportunityRow[];
   stages: PipelineStage[];
+  users?: WorkspaceUser[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>(initial);
   const [, startTransition] = useTransition();
   const [creating, setCreating] = useState(false);
   const [createStage, setCreateStage] = useState<string | undefined>(undefined);
+  const [ownerFilter, setOwnerFilter] = useState<Set<string>>(() => {
+    const fromUrl = searchParams.get("owner");
+    return fromUrl ? new Set([fromUrl]) : new Set();
+  });
   const stageByLabel = new Map(stages.map((s) => [s.label, s]));
+
+  const filteredOpportunities = useMemo(() => {
+    if (ownerFilter.size === 0) return opportunities;
+    return opportunities.filter((o) => ownerFilter.has(o.ownerId ?? NO_OWNER_KEY));
+  }, [opportunities, ownerFilter]);
 
   function moveOpportunity(id: string, stage: OpportunityStage) {
     const target = stageByLabel.get(stage);
@@ -133,15 +145,15 @@ export function OpportunitiesView({
         <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
           <KanbanSquare size={14} strokeWidth={1.75} />
           By Stage
-          <span className="text-subtle">· {opportunities.length}</span>
+          <span className="text-subtle">
+            · {filteredOpportunities.length}
+            {ownerFilter.size > 0 && ` of ${opportunities.length}`}
+          </span>
           <ChevronDown size={13} strokeWidth={1.75} />
         </button>
 
         <div className="flex items-center gap-1">
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-            <ListFilter size={14} strokeWidth={1.75} />
-            Filter
-          </button>
+          <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
           <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
             <ArrowUpDown size={14} strokeWidth={1.75} />
             Sort
@@ -157,7 +169,7 @@ export function OpportunitiesView({
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
-        <KanbanBoard opportunities={opportunities} stages={stages} onMove={moveOpportunity} onAdd={openCreate} />
+        <KanbanBoard opportunities={filteredOpportunities} stages={stages} onMove={moveOpportunity} onAdd={openCreate} />
       </div>
 
       {creating && <CreateDealPanel stages={stages} defaultStage={createStage} onClose={handleCreated} />}

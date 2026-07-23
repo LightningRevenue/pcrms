@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Activity, Company, ContactPipelineStage, ImportBatch, Note, Person, Task, User } from "@prisma/client";
 import {
   List,
@@ -11,8 +11,6 @@ import {
   Users,
   ChevronDown,
   ChevronUp,
-  ListFilter,
-  ArrowUpDown,
   SlidersHorizontal as OptionsIcon,
   Mail,
   UserCircle,
@@ -37,6 +35,7 @@ import { moveContactStage, bulkMoveUnstagedContacts } from "@/lib/actions/contac
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
+import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
 
 export type PersonRow = Person & {
   company: Company | null;
@@ -83,7 +82,6 @@ type ColumnKey = StandardColumnKey | `custom:${string}`;
 const DEFAULT_VISIBLE: ColumnKey[] = STANDARD_COLUMNS.map((c) => c.key);
 const STORAGE_KEY = "contacts:visibleColumns";
 const LEAD_VIEW_STORAGE_KEY = "contacts:leadViewEnabled";
-const NO_OWNER_KEY = "no-owner";
 
 // Toggle for the HubSpot-style 3-column /lead/[id] page (see lead-relationships-panel.tsx),
 // kept separate from /contacts/[id] so it can be iterated on without risk. Persisted so the
@@ -215,8 +213,6 @@ function useVisibleColumns(customFields: PersonCustomField[]) {
   return { visible, toggle, allKeys };
 }
 
-type WorkspaceUser = { id: string; name: string | null; email: string | null };
-
 export function ContactsView({
   people: initialPeople,
   lastActivityByPerson,
@@ -251,9 +247,14 @@ export function ContactsView({
   const [sort, setSort] = useState<{ key: ColumnKey; dir: SortDir } | null>(null);
   const [changingOwner, setChangingOwner] = useState(false);
   const [previewPerson, setPreviewPerson] = useState<PersonRow | null>(null);
+  const searchParams = useSearchParams();
   // Empty set = no filter applied (show everyone). "no-owner" is a synthetic id alongside real
-  // user ids — OR semantics: a person matches if their owner is in this set.
-  const [ownerFilter, setOwnerFilter] = useState<Set<string>>(new Set());
+  // user ids — OR semantics: a person matches if their owner is in this set. Seeded from
+  // ?owner=<userId> so a link from the dashboard's "Ownership by agent" table lands pre-filtered.
+  const [ownerFilter, setOwnerFilter] = useState<Set<string>>(() => {
+    const fromUrl = searchParams.get("owner");
+    return fromUrl ? new Set([fromUrl]) : new Set();
+  });
 
   function handleSort(key: ColumnKey) {
     setSort((prev) => {
@@ -480,81 +481,6 @@ export function ContactsView({
             setDraft({ personId: p.id, to: p.email ? [p.email] : [], contactFirstName: p.firstName });
           }}
         />
-      )}
-    </div>
-  );
-}
-
-function OwnerFilterPicker({
-  users,
-  selected,
-  onChange,
-}: {
-  users: WorkspaceUser[];
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    if (open) document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [open]);
-
-  function toggle(key: string) {
-    const next = new Set(selected);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    onChange(next);
-  }
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] transition-colors ${
-          selected.size > 0 ? "text-accent" : "text-subtle hover:bg-muted hover:text-foreground"
-        }`}
-      >
-        <ListFilter size={14} strokeWidth={1.75} />
-        Filter
-        {selected.size > 0 && (
-          <span className="px-1.5 py-0.5 rounded-full bg-accent/15 text-accent text-[11px]">{selected.size}</span>
-        )}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 mt-1.5 w-56 border border-border rounded-lg bg-surface shadow-lg z-20 py-1 max-h-96 overflow-auto">
-          <div className="flex items-center justify-between px-3 py-1.5">
-            <p className="text-[11px] font-medium text-subtle uppercase tracking-wide">Owner</p>
-            {selected.size > 0 && (
-              <button onClick={() => onChange(new Set())} className="text-[11px] text-subtle hover:text-foreground transition-colors">
-                Clear
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => toggle(NO_OWNER_KEY)}
-            className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors"
-          >
-            <span className="text-subtle">No owner</span>
-            {selected.has(NO_OWNER_KEY) && <Check size={14} strokeWidth={2} />}
-          </button>
-          {users.map((u) => (
-            <button
-              key={u.id}
-              onClick={() => toggle(u.id)}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors truncate"
-            >
-              <span className="truncate">{u.name ?? u.email}</span>
-              {selected.has(u.id) && <Check size={14} strokeWidth={2} className="shrink-0" />}
-            </button>
-          ))}
-        </div>
       )}
     </div>
   );

@@ -123,6 +123,121 @@ export async function getActivityTrend(days = 14): Promise<TrendPoint[]> {
   return points;
 }
 
+// Drill-down: same range math as getSalesTrackingStats/countAll, but returning the actual
+// rows behind a stat tile instead of just the count — clicking a tile opens these in a panel.
+export type DrillDownMetric = "totalOpens" | "uniqueOpens" | "contactsCreated" | "emailsSent" | "replies";
+
+export type DrillDownRow = {
+  id: string;
+  title: string;
+  subtitle: string;
+  href: string;
+  timestamp: Date;
+};
+
+export async function getDrillDownRows(metric: DrillDownMetric, range: StatsRange, day?: string): Promise<DrillDownRow[]> {
+  const ctx = await requireWorkspace();
+  const { workspaceId } = ctx;
+  const now = new Date();
+
+  let start: Date;
+  let end: Date;
+  if (day) {
+    // A specific day clicked on the trend chart overrides the tile range entirely.
+    start = new Date(day);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(start);
+    end.setDate(end.getDate() + 1);
+  } else {
+    start = rangeStart(range, now);
+    end = now;
+  }
+
+  if (metric === "contactsCreated") {
+    const people = await db.person.findMany({
+      where: { workspaceId, createdAt: { gte: start, lt: end }, ...personVisibilityFilter(ctx) },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { id: true, firstName: true, lastName: true, email: true, createdAt: true },
+    });
+    return people.map((p) => ({
+      id: p.id,
+      title: [p.firstName, p.lastName].filter(Boolean).join(" ") || "Untitled",
+      subtitle: p.email ?? "",
+      href: `/contacts/${p.id}`,
+      timestamp: p.createdAt,
+    }));
+  }
+
+  if (metric === "emailsSent") {
+    const emails = await db.email.findMany({
+      where: { workspaceId, direction: "sent", sentAt: { gte: start, lt: end } },
+      orderBy: { sentAt: "desc" },
+      take: 100,
+      select: { id: true, subject: true, to: true, sentAt: true, personId: true },
+    });
+    return emails.map((e) => ({
+      id: e.id,
+      title: e.subject || "(no subject)",
+      subtitle: `to ${e.to.join(", ")}`,
+      href: e.personId ? `/contacts/${e.personId}?tab=emails&emailId=${e.id}` : "/inbox",
+      timestamp: e.sentAt,
+    }));
+  }
+
+  if (metric === "replies") {
+    const emails = await db.email.findMany({
+      where: { workspaceId, direction: "received", personId: { not: null }, sentAt: { gte: start, lt: end } },
+      orderBy: { sentAt: "desc" },
+      take: 100,
+      select: { id: true, subject: true, from: true, sentAt: true, personId: true },
+    });
+    return emails.map((e) => ({
+      id: e.id,
+      title: e.subject || "(no subject)",
+      subtitle: `from ${e.from}`,
+      href: `/contacts/${e.personId}?tab=emails&emailId=${e.id}`,
+      timestamp: e.sentAt,
+    }));
+  }
+
+  // totalOpens / uniqueOpens — both come from EmailOpen rows; uniqueOpens just dedupes by
+  // personId client-side-equivalent below (same de-dup rule as countAll's uniqueOpens).
+  const opens = await db.emailOpen.findMany({
+    where: { workspaceId, openedAt: { gte: start, lt: end } },
+    orderBy: { openedAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      openedAt: true,
+      email: { select: { id: true, subject: true, personId: true, person: { select: { firstName: true, lastName: true } } } },
+    },
+  });
+
+  function toRow(o: (typeof opens)[number]): DrillDownRow {
+    return {
+      id: o.id,
+      title: o.email.subject || "(no subject)",
+      subtitle: o.email.person ? [o.email.person.firstName, o.email.person.lastName].filter(Boolean).join(" ") : "Unknown contact",
+      href: o.email.personId ? `/contacts/${o.email.personId}?tab=emails&emailId=${o.email.id}` : "/inbox",
+      timestamp: o.openedAt,
+    };
+  }
+
+  if (metric === "totalOpens") return opens.map(toRow);
+
+  const seen = new Set<string>();
+  return opens
+    .filter((o) => {
+      const personId = o.email.personId;
+      if (!personId) return true; // no contact to dedupe by — keep it
+      if (seen.has(personId)) return false;
+      seen.add(personId);
+      return true;
+    })
+    .map(toRow);
+}
+
 export type OwnershipRow = { userId: string; name: string; contacts: number; deals: number };
 
 export async function getOwnershipByAgent(): Promise<OwnershipRow[]> {

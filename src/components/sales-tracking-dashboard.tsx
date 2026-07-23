@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LayoutGrid, MailOpen, Eye, UserPlus, Send, Reply } from "lucide-react";
+import Link from "next/link";
+import { LayoutGrid, MailOpen, Eye, UserPlus, Send, Reply, ArrowUpRight } from "lucide-react";
 import {
   getSalesTrackingStats,
   getActivityTrend,
@@ -10,7 +11,9 @@ import {
   type SalesTrackingStats,
   type TrendPoint,
   type OwnershipRow,
+  type DrillDownMetric,
 } from "@/lib/actions/dashboard-stats";
+import { DashboardDrilldownPanel } from "@/components/dashboard-drilldown-panel";
 
 const RANGES: { key: StatsRange; label: string }[] = [
   { key: "day", label: "Day" },
@@ -23,6 +26,7 @@ export function SalesTrackingDashboard({ name }: { name: string }) {
   const [stats, setStats] = useState<SalesTrackingStats | null>(null);
   const [trend, setTrend] = useState<TrendPoint[] | null>(null);
   const [ownership, setOwnership] = useState<OwnershipRow[] | null>(null);
+  const [drilldown, setDrilldown] = useState<{ metric: DrillDownMetric; day?: string } | null>(null);
 
   useEffect(() => {
     getSalesTrackingStats(range).then(setStats);
@@ -57,17 +61,21 @@ export function SalesTrackingDashboard({ name }: { name: string }) {
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="max-w-5xl mx-auto w-full px-6 py-6 space-y-6">
           <div className="grid grid-cols-5 gap-3">
-            <StatTile icon={Eye} label="Total opens" stat={stats?.totalOpens} />
-            <StatTile icon={MailOpen} label="Unique opens" stat={stats?.uniqueOpens} />
-            <StatTile icon={UserPlus} label="Contacts created" stat={stats?.contactsCreated} />
-            <StatTile icon={Send} label="Emails sent" stat={stats?.emailsSent} />
-            <StatTile icon={Reply} label="Replies" stat={stats?.replies} />
+            <StatTile icon={Eye} label="Total opens" stat={stats?.totalOpens} onClick={() => setDrilldown({ metric: "totalOpens" })} />
+            <StatTile icon={MailOpen} label="Unique opens" stat={stats?.uniqueOpens} onClick={() => setDrilldown({ metric: "uniqueOpens" })} />
+            <StatTile icon={UserPlus} label="Contacts created" stat={stats?.contactsCreated} onClick={() => setDrilldown({ metric: "contactsCreated" })} />
+            <StatTile icon={Send} label="Emails sent" stat={stats?.emailsSent} onClick={() => setDrilldown({ metric: "emailsSent" })} />
+            <StatTile icon={Reply} label="Replies" stat={stats?.replies} onClick={() => setDrilldown({ metric: "replies" })} />
           </div>
           {stats && <p className="text-[12px] text-subtle -mt-3">{stats.rangeLabel}, vs. previous period</p>}
 
           <div className="border border-border rounded-md p-4">
-            <p className="text-[13px] font-medium mb-4">Activity, last 14 days</p>
-            {trend ? <TrendChart points={trend} /> : <ChartSkeleton />}
+            <p className="text-[13px] font-medium mb-4">Activity, last 14 days — click a day to see what happened</p>
+            {trend ? (
+              <TrendChart points={trend} onDayClick={(date) => setDrilldown({ metric: "emailsSent", day: date })} />
+            ) : (
+              <ChartSkeleton />
+            )}
           </div>
 
           <div className="border border-border rounded-md overflow-hidden">
@@ -91,8 +99,18 @@ export function SalesTrackingDashboard({ name }: { name: string }) {
                   {ownership.map((o) => (
                     <tr key={o.userId} className="border-t border-border">
                       <td className="px-4 py-2 truncate">{o.name}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{o.contacts}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{o.deals}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        <Link href={`/contacts?owner=${o.userId}`} className="inline-flex items-center gap-1 hover:text-accent transition-colors group">
+                          {o.contacts}
+                          <ArrowUpRight size={11} strokeWidth={1.75} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        <Link href={`/deals?owner=${o.userId}`} className="inline-flex items-center gap-1 hover:text-accent transition-colors group">
+                          {o.deals}
+                          <ArrowUpRight size={11} strokeWidth={1.75} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </Link>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -101,6 +119,15 @@ export function SalesTrackingDashboard({ name }: { name: string }) {
           </div>
         </div>
       </div>
+
+      {drilldown && (
+        <DashboardDrilldownPanel
+          metric={drilldown.metric}
+          range={range}
+          day={drilldown.day}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
   );
 }
@@ -109,13 +136,15 @@ function StatTile({
   icon: Icon,
   label,
   stat,
+  onClick,
 }: {
   icon: typeof Eye;
   label: string;
   stat: { value: number; change: number | null } | undefined;
+  onClick: () => void;
 }) {
   return (
-    <div className="rounded-md border border-border p-3">
+    <button onClick={onClick} disabled={!stat} className="text-left rounded-md border border-border p-3 hover:border-subtle hover:bg-muted/40 transition-colors disabled:cursor-default disabled:hover:border-border disabled:hover:bg-transparent">
       <div className="flex items-center gap-1.5 text-subtle">
         <Icon size={13} strokeWidth={1.5} />
         <p className="text-[11px] uppercase tracking-wide">{label}</p>
@@ -127,7 +156,7 @@ function StatTile({
           {stat.change}% vs prior
         </p>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -137,7 +166,7 @@ function ChartSkeleton() {
 
 // Plain-SVG line chart, two series (emails sent / opens) sharing one axis — no
 // charting library needed for a 14-point trend line.
-function TrendChart({ points }: { points: TrendPoint[] }) {
+function TrendChart({ points, onDayClick }: { points: TrendPoint[]; onDayClick: (date: string) => void }) {
   const width = 900;
   const height = 200;
   const padding = { top: 10, right: 10, bottom: 24, left: 10 };
@@ -195,7 +224,9 @@ function TrendChart({ points }: { points: TrendPoint[] }) {
               width={stepX || width}
               height={height}
               fill="transparent"
+              className="cursor-pointer"
               onMouseEnter={() => setHoverIdx(i)}
+              onClick={() => onDayClick(p.date)}
             />
           );
         })}
