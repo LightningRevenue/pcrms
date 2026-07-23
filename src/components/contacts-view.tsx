@@ -27,6 +27,7 @@ import {
   CalendarClock,
   X,
   Eye,
+  Sparkles,
 } from "lucide-react";
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
@@ -79,6 +80,28 @@ type ColumnKey = StandardColumnKey | `custom:${string}`;
 
 const DEFAULT_VISIBLE: ColumnKey[] = STANDARD_COLUMNS.map((c) => c.key);
 const STORAGE_KEY = "contacts:visibleColumns";
+const LEAD_VIEW_STORAGE_KEY = "contacts:leadViewEnabled";
+
+// Toggle for the HubSpot-style 3-column /lead/[id] page (see lead-relationships-panel.tsx),
+// kept separate from /contacts/[id] so it can be iterated on without risk. Persisted so the
+// choice sticks across visits; row links point at whichever route is currently selected.
+function useLeadView() {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    setEnabled(localStorage.getItem(LEAD_VIEW_STORAGE_KEY) === "1");
+  }, []);
+
+  function toggle() {
+    setEnabled((prev) => {
+      const next = !prev;
+      localStorage.setItem(LEAD_VIEW_STORAGE_KEY, next ? "1" : "0");
+      return next;
+    });
+  }
+
+  return { enabled, toggle };
+}
 
 function initials(name: string) {
   return name
@@ -214,6 +237,7 @@ export function ContactsView({
 }) {
   const [view, setView] = useState<"list" | "kanban">("list");
   const { visible: visibleColumns, toggle: toggleColumn } = useVisibleColumns(customFields);
+  const leadView = useLeadView();
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
@@ -268,13 +292,27 @@ export function ContactsView({
           <Users size={14} strokeWidth={1.75} className="text-violet-400" />
           <span className="font-medium">{title}</span>
         </div>
-        <button
-          onClick={() => (onAddClick ? onAddClick() : setCreating(true))}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity"
-        >
-          <Plus size={14} strokeWidth={2} />
-          {onAddClick ? "Add People" : "New Person"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={leadView.toggle}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] border transition-colors ${
+              leadView.enabled
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-border text-subtle hover:bg-muted hover:text-foreground"
+            }`}
+            title="Preview the new HubSpot-style contact layout"
+          >
+            <Sparkles size={14} strokeWidth={1.75} />
+            {leadView.enabled ? "New View: On" : "Turn New View On"}
+          </button>
+          <button
+            onClick={() => (onAddClick ? onAddClick() : setCreating(true))}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity"
+          >
+            <Plus size={14} strokeWidth={2} />
+            {onAddClick ? "Add People" : "New Person"}
+          </button>
+        </div>
       </div>
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
@@ -331,6 +369,7 @@ export function ContactsView({
             nextTaskByPerson={nextTaskByPerson}
             sort={sort}
             onSort={handleSort}
+            linkBase={leadView.enabled ? "/lead" : "/contacts"}
           />
         ) : (
           <div className="p-6">
@@ -410,6 +449,7 @@ export function ContactsView({
           tasks={tasksByPerson.get(previewPerson.id) ?? []}
           notes={notesByPerson.get(previewPerson.id) ?? []}
           users={users}
+          linkBase={leadView.enabled ? "/lead" : "/contacts"}
           onClose={() => setPreviewPerson(null)}
           onComposeEmail={(p) => {
             setPreviewPerson(null);
@@ -540,6 +580,7 @@ function ListView({
   nextTaskByPerson,
   sort,
   onSort,
+  linkBase = "/contacts",
 }: {
   people: PersonRow[];
   visibleColumns: ColumnKey[];
@@ -552,6 +593,7 @@ function ListView({
   nextTaskByPerson: Map<string, Task>;
   sort: { key: ColumnKey; dir: SortDir } | null;
   onSort: (key: ColumnKey) => void;
+  linkBase?: string;
 }) {
   const cols = useMemo(() => {
     const standard = STANDARD_COLUMNS.filter((c) => visibleColumns.includes(c.key)).map((c) => ({
@@ -633,7 +675,7 @@ function ListView({
               >
                 <Eye size={13} strokeWidth={1.75} />
               </button>
-              <Link href={`/contacts/${p.id}`} className="flex items-center gap-2 min-w-0 pl-1 group">
+              <Link href={`${linkBase}/${p.id}`} className="flex items-center gap-2 min-w-0 pl-1 group">
                 {p.company?.domain ? (
                   <CompanyLogo domain={p.company.domain} fallbackText={initials(name) || "?"} size={24} rounded="rounded-full" className="text-[10px]" />
                 ) : (

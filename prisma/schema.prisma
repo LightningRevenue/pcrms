@@ -42,6 +42,8 @@ model Workspace {
 
   companies              Company[]
   people                 Person[]
+  personCompanies        PersonCompany[]
+  opportunityPeople      OpportunityPerson[]
   activity               Activity[]
   tasks                  Task[]
   opportunities          Opportunity[]
@@ -318,6 +320,7 @@ model Company {
 
   people        Person[]
   opportunities Opportunity[]
+  personLinks   PersonCompany[]
 
   @@index([workspaceId])
   @@index([deletedAt])
@@ -334,6 +337,8 @@ model Person {
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
+  // Primary company, shown by default on the person's card/list row. Additional companies
+  // (e.g. a consultant working with several clients) go through PersonCompany.
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
 
@@ -356,9 +361,32 @@ model Person {
   sequenceEnrollments SequenceEnrollment[]
   campaignMembers     CampaignMember[]
   calls               Call[]
+  companyLinks        PersonCompany[]
+  opportunityLinks    OpportunityPerson[]
 
   @@index([workspaceId])
   @@index([deletedAt])
+}
+
+// Many-to-many: a person can be linked to companies beyond their primary Person.companyId
+// (e.g. a consultant working with several clients). Person.companyId stays the single
+// source of truth for "primary" — isPrimary here is display-only, not authoritative.
+model PersonCompany {
+  personId  String
+  person    Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  role      String? // e.g. "Decision Maker", "Billing Contact" — free text, per-relationship
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([personId, companyId])
+  @@index([companyId])
+  @@index([workspaceId])
 }
 
 // Unified activity log for Person/Company/Opportunity timelines. entityId is not a
@@ -420,6 +448,8 @@ model Opportunity {
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
 
+  // Primary contact, shown by default on the deal card. Additional stakeholders go through
+  // OpportunityPerson.
   contactId String?
   contact   Person? @relation(fields: [contactId], references: [id])
 
@@ -435,9 +465,28 @@ model Opportunity {
   emails EmailOpportunity[]
   tasks  TaskOpportunity[]
   notes  NoteOpportunity[]
+  people OpportunityPerson[]
 
   @@index([workspaceId])
   @@index([deletedAt])
+}
+
+// Many-to-many: a deal can have several stakeholders beyond the primary Opportunity.contactId.
+model OpportunityPerson {
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  personId      String
+  person        Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  role      String? // e.g. "Champion", "Economic Buyer" — free text, per-relationship
+  createdAt DateTime @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, personId])
+  @@index([personId])
+  @@index([workspaceId])
 }
 
 model PipelineStage {

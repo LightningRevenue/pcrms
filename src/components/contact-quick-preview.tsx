@@ -162,6 +162,7 @@ export function ContactQuickPreview({
   users,
   onClose,
   onComposeEmail,
+  linkBase = "/contacts",
 }: {
   person: PersonRow;
   lastActivity?: Activity;
@@ -171,6 +172,7 @@ export function ContactQuickPreview({
   users: WorkspaceUser[];
   onClose: () => void;
   onComposeEmail: (person: PersonRow) => void;
+  linkBase?: string;
 }) {
   const name = fullName(person) || "Untitled";
   const [ownerId, setOwnerId] = useState(person.ownerId);
@@ -330,7 +332,7 @@ export function ContactQuickPreview({
             </button>
           )}
           <Link
-            href={`/contacts/${person.id}`}
+            href={`${linkBase}/${person.id}`}
             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] border border-border text-foreground hover:bg-muted transition-colors"
           >
             View full profile
