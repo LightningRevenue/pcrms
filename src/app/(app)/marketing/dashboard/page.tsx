@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { RestrictedAppPage } from "@/components/restricted-app-page";
 import { hasFeatureAccess } from "@/lib/entitlements";
+import { MarketingDashboardView } from "@/components/marketing-dashboard-view";
 
 export default async function MarketingDashboardPage() {
   const session = await auth();
@@ -11,10 +12,5 @@ export default async function MarketingDashboardPage() {
     return <RestrictedAppPage message="Marketing campaigns aren't available on your current plan. Ask your workspace owner to upgrade." />;
   }
 
-  return (
-    <div className="px-8 py-10">
-      <h1 className="text-xl font-medium">Marketing Dashboard</h1>
-      <p className="text-[13px] text-subtle mt-2">Coming soon.</p>
-    </div>
-  );
+  return <MarketingDashboardView />;
 }
