@@ -47,9 +47,12 @@ export async function runStripeReconcile() {
         continue;
       }
 
-      const active = subscription.status === "active" || subscription.status === "trialing";
+      // Mirrors the grace period in the webhook handler (route.ts) — past_due keeps its
+      // current paid plan while Stripe's own retry schedule is still trying to collect.
+      const keepsCurrentPlan =
+        subscription.status === "active" || subscription.status === "trialing" || subscription.status === "past_due";
       const priceId = subscription.items.data[0]?.price.id;
-      const correctPlan = active && priceId ? await db.plan.findUnique({ where: { stripePriceId: priceId } }) : defaultPlan;
+      const correctPlan = keepsCurrentPlan && priceId ? await db.plan.findUnique({ where: { stripePriceId: priceId } }) : defaultPlan;
 
       if (correctPlan && correctPlan.id !== workspace.planId) {
         await db.workspace.update({ where: { id: workspace.id }, data: { planId: correctPlan.id } });

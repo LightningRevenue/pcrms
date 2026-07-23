@@ -13,9 +13,15 @@ async function syncSubscriptionToWorkspace(subscription: Stripe.Subscription) {
   if (!workspace) return; // not one of our workspaces (or webhook arrived before checkout finished persisting the customer)
 
   const priceId = subscription.items.data[0]?.price.id;
-  const active = subscription.status === "active" || subscription.status === "trialing";
+  // "past_due" gets a grace period — Stripe's own retry schedule (Smart Retries, typically
+  // spread over 1-3 weeks) is still trying to collect payment, so a workspace keeps its paid
+  // plan through that window instead of losing access the moment a card first fails. Only a
+  // subscription Stripe has given up on (canceled/unpaid/incomplete_expired) or one that
+  // never completed its initial payment (incomplete) falls back to the default plan.
+  const keepsCurrentPlan =
+    subscription.status === "active" || subscription.status === "trialing" || subscription.status === "past_due";
 
-  if (!active) {
+  if (!keepsCurrentPlan) {
     // Subscription cancelled/unpaid/etc. — fall back to the default plan rather than leaving
     // the workspace on a paid plan's entitlements with nothing actually being billed.
     const defaultPlan = await db.plan.findFirst({ where: { isDefault: true } });
