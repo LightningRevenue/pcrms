@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { publishNotification } from "@/lib/redis";
 import { sendReplyEmailNotification } from "@/lib/reply-notification";
 import { decrypt } from "@/lib/encryption";
+import { cancelActiveEmailStepsOnReply } from "@/lib/sequence-runner";
 import type { MailboxAccount } from "@prisma/client";
 
 function findBodyPart(node: MessageStructureObject, wantType: "text/html" | "text/plain"): MessageStructureObject | null {
@@ -112,6 +113,10 @@ async function saveMessage(
       personId: person?.id,
     },
   });
+
+  if (person) {
+    await cancelActiveEmailStepsOnReply(person.id, account.workspaceId);
+  }
 
   if (account.createdById) {
     const senderLabel = person

@@ -6,6 +6,43 @@ import { assertLimit } from "@/lib/entitlements";
 
 const CRON_JOB_NAME = "sequence-step-runner";
 
+// Called from gmail-sync.ts and imap-sync.ts whenever a "received" Email lands for a person —
+// a reply means the person is already engaged, so any sequence still emailing them should stop
+// rather than talk past them (e.g. sending step 3 after they replied to step 1). Only email
+// steps are skipped — task/note steps still fire, since those are follow-up work for a human,
+// not more outbound messaging.
+export async function cancelActiveEmailStepsOnReply(personId: string, workspaceId: string) {
+  const activeEnrollments = await db.sequenceEnrollment.findMany({
+    where: { workspaceId, personId, status: "active" },
+    select: { id: true },
+  });
+  if (activeEnrollments.length === 0) return;
+
+  const enrollmentIds = activeEnrollments.map((e) => e.id);
+
+  await db.sequenceStepRun.updateMany({
+    where: {
+      workspaceId,
+      enrollmentId: { in: enrollmentIds },
+      status: "pending",
+      step: { type: "email" },
+    },
+    data: { status: "skipped" },
+  });
+
+  for (const enrollmentId of enrollmentIds) {
+    const remaining = await db.sequenceStepRun.count({
+      where: { workspaceId, enrollmentId, status: "pending" },
+    });
+    if (remaining === 0) {
+      await db.sequenceEnrollment.update({
+        where: { id: enrollmentId, workspaceId },
+        data: { status: "completed", completedAt: new Date() },
+      });
+    }
+  }
+}
+
 async function executeStepRun(
   run: {
     id: string;

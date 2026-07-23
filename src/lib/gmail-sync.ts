@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { fetchThreadMessages } from "@/lib/gmail";
 import { publishNotification } from "@/lib/redis";
 import { sendReplyEmailNotification } from "@/lib/reply-notification";
+import { cancelActiveEmailStepsOnReply } from "@/lib/sequence-runner";
 
 // ponytail: direction inferred from Gmail's own SENT label — no per-account address matching needed
 function directionFromLabels(labelIds: string[]): "sent" | "received" {
@@ -54,6 +55,8 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
     });
 
     if (direction === "received") {
+      await cancelActiveEmailStepsOnReply(personId, workspaceId);
+
       const person = await db.person.findUnique({ where: { id: personId, workspaceId } });
       const personName = person ? [person.firstName, person.lastName].filter(Boolean).join(" ") : m.from;
 
