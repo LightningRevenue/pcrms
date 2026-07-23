@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { ContactHeaderBar } from "@/components/contact-header-bar";
+import { LeadHeaderBar } from "@/components/lead-header-bar";
 import { ContactDetailPanel } from "@/components/contact-detail-panel";
 import { ContactTabs } from "@/components/contact-tabs";
 import { LeadRelationshipsPanel } from "@/components/lead-relationships-panel";
 import { getCustomFieldValues } from "@/lib/actions/custom-fields";
 import { listOpportunitiesForPerson } from "@/lib/actions/opportunities";
 import { listPipelineStages } from "@/lib/actions/pipeline-stages";
-import { listSequencesForPerson } from "@/lib/actions/sequences";
+import { listSequenceEnrollmentsWithProgress } from "@/lib/actions/sequences";
 import { isFavorited } from "@/lib/actions/favorites";
 import { listMyMailboxOptions } from "@/lib/actions/mailbox-preferences";
 import { listListsForEntity } from "@/lib/actions/lists";
@@ -78,7 +78,7 @@ export default async function LeadDetailPage({
     }),
     listOpportunitiesForPerson(id),
     listPipelineStages(),
-    listSequencesForPerson(id),
+    listSequenceEnrollmentsWithProgress(id),
     isFavorited("person", id),
     listMyMailboxOptions(),
     listListsForEntity("person", id),
@@ -101,18 +101,12 @@ export default async function LeadDetailPage({
 
   return (
     <div className="flex flex-col h-screen">
-      <ContactHeaderBar
+      <LeadHeaderBar
         contactId={contact.id}
         name={name}
         index={index + 1}
         total={people.length}
-        companyName={contact.company?.name ?? null}
-        personEmail={contact.email}
-        personPhone={contact.phone}
-        stages={stages}
-        opportunities={openOpportunities}
         isFavorited={favorited}
-        mailboxes={mailboxes}
       />
       <div className="flex flex-1 min-h-0">
         <ContactDetailPanel
@@ -122,6 +116,8 @@ export default async function LeadDetailPage({
           sequenceEnrollments={sequenceEnrollments.filter((e) => e.status === "active")}
           lists={lists}
           users={users}
+          hideRelations
+          quickActions={{ stages, mailboxes }}
         />
         <div className="flex-1 min-w-0 overflow-y-auto">
           <ContactTabs
@@ -139,9 +135,11 @@ export default async function LeadDetailPage({
         </div>
         <LeadRelationshipsPanel
           personId={contact.id}
-          primaryCompanyId={contact.companyId}
+          primaryCompany={contact.company}
           companyLinks={companyLinks}
           opportunityLinks={opportunityLinks}
+          lists={lists}
+          sequenceEnrollments={sequenceEnrollments}
         />
       </div>
     </div>

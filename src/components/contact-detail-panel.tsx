@@ -13,8 +13,11 @@ import { CompanyLogo } from "@/components/company-logo";
 import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactPlaybooksPanel } from "@/components/contact-playbooks-panel";
+import { LeadQuickActions } from "@/components/lead-quick-actions";
 import { updatePersonField, setPersonCompany, setPersonOwner, type PersonField } from "@/lib/actions/contacts";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
+import type { MailboxOption } from "@/components/email-composer";
+import type { PipelineStage } from "@prisma/client";
 
 type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
@@ -45,6 +48,8 @@ export function ContactDetailPanel({
   sequenceEnrollments,
   lists,
   users,
+  hideRelations = false,
+  quickActions,
 }: {
   contact: ContactWithRelations;
   customFields: Awaited<ReturnType<typeof getCustomFieldValues>>;
@@ -52,6 +57,12 @@ export function ContactDetailPanel({
   sequenceEnrollments: EnrollmentWithSequence[];
   lists: List[];
   users: WorkspaceUser[];
+  // Company/Opportunities/Sequences/Lists — omitted on /lead/[id], which shows all of that
+  // in LeadRelationshipsPanel on the right instead, to avoid showing it twice.
+  hideRelations?: boolean;
+  // Renders LeadQuickActions under the name on /lead/[id] — undefined on /contacts/[id],
+  // which keeps those actions in ContactHeaderBar at the top instead.
+  quickActions?: { stages: PipelineStage[]; mailboxes: MailboxOption[] };
 }) {
   const [firstName, setFirstName] = useState(contact.firstName);
   const [lastName, setLastName] = useState(contact.lastName ?? "");
@@ -86,6 +97,21 @@ export function ContactDetailPanel({
         />
       </div>
       <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
+
+      {quickActions && (
+        <div className="mt-3">
+          <LeadQuickActions
+            contactId={contact.id}
+            name={name}
+            companyName={contact.company?.name ?? null}
+            personEmail={contact.email}
+            personPhone={contact.phone}
+            stages={quickActions.stages}
+            opportunities={opportunities}
+            mailboxes={quickActions.mailboxes}
+          />
+        </div>
+      )}
 
       <button
         onClick={() => setShowPlaybooks(true)}
@@ -138,74 +164,76 @@ export function ContactDetailPanel({
         <CustomFieldsSection objectType="person" recordId={contact.id} fields={customFields} />
       </div>
 
-      <div className="mt-2 border-t border-border pt-4 space-y-4">
-        <div>
-          <p className="text-[13px] font-medium px-1">Company</p>
-          {contact.company ? (
-            <div className="flex items-center rounded-md hover:bg-muted transition-colors mt-1.5 group">
-              <Link
-                href={`/companies/${contact.company.id}`}
-                className="flex-1 min-w-0 flex items-center gap-1.5 px-1 py-1 text-[13px]"
-              >
-                <CompanyLogo domain={contact.company.domain} fallbackText="" size={14} className="bg-transparent border-0" />
-                {!contact.company.domain && <Building2 size={13} strokeWidth={1.75} className="text-subtle shrink-0" />}
-                <span className="truncate">{contact.company.name}</span>
-                <ArrowUpRight size={12} strokeWidth={1.75} className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-              </Link>
-              <button
-                onClick={() => setPersonCompany(contact.id, null)}
-                className="p-1 mr-0.5 rounded text-subtle opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity shrink-0"
-                title="Unlink"
-              >
-                <X size={12} strokeWidth={1.75} />
-              </button>
-            </div>
-          ) : (
-            <div className="mt-1.5">
-              <CompanyAutocompleteField value="" onSelect={(c) => setPersonCompany(contact.id, c)} showLabel={false} />
-            </div>
-          )}
-        </div>
-        <div>
-          <SidePanelSection title="Opportunities" />
-          {opportunities.length > 0 && (
-            <div className="mt-1.5 space-y-0.5">
-              {opportunities.map((o) => (
-                <Link
-                  key={o.id}
-                  href={`/deals/${o.id}`}
-                  className="flex items-center gap-1.5 rounded-md px-1 py-1 text-[13px] hover:bg-muted transition-colors group"
-                >
-                  <Banknote size={13} strokeWidth={1.75} className="text-subtle shrink-0" />
-                  <span className="truncate flex-1 min-w-0">{o.name}</span>
-                  <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-muted text-subtle shrink-0">{o.stage}</span>
-                  <span className="text-subtle shrink-0">${o.value.toLocaleString()}</span>
-                  <ArrowUpRight size={12} strokeWidth={1.75} className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-        {sequenceEnrollments.length > 0 && (
+      {!hideRelations && (
+        <div className="mt-2 border-t border-border pt-4 space-y-4">
           <div>
-            <p className="text-[13px] font-medium px-1">Sequences</p>
-            <div className="mt-1.5 space-y-0.5">
-              {sequenceEnrollments.map((e) => (
+            <p className="text-[13px] font-medium px-1">Company</p>
+            {contact.company ? (
+              <div className="flex items-center rounded-md hover:bg-muted transition-colors mt-1.5 group">
                 <Link
-                  key={e.id}
-                  href={`/sequences/${e.sequenceId}`}
-                  className="flex items-center gap-1.5 rounded-md px-1 py-1 text-[13px] hover:bg-muted transition-colors group"
+                  href={`/companies/${contact.company.id}`}
+                  className="flex-1 min-w-0 flex items-center gap-1.5 px-1 py-1 text-[13px]"
                 >
-                  <GitBranch size={13} strokeWidth={1.75} className="text-subtle shrink-0" />
-                  <span className="truncate flex-1 min-w-0">Enrolled in {e.sequence.name}</span>
+                  <CompanyLogo domain={contact.company.domain} fallbackText="" size={14} className="bg-transparent border-0" />
+                  {!contact.company.domain && <Building2 size={13} strokeWidth={1.75} className="text-subtle shrink-0" />}
+                  <span className="truncate">{contact.company.name}</span>
                   <ArrowUpRight size={12} strokeWidth={1.75} className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                 </Link>
-              ))}
-            </div>
+                <button
+                  onClick={() => setPersonCompany(contact.id, null)}
+                  className="p-1 mr-0.5 rounded text-subtle opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity shrink-0"
+                  title="Unlink"
+                >
+                  <X size={12} strokeWidth={1.75} />
+                </button>
+              </div>
+            ) : (
+              <div className="mt-1.5">
+                <CompanyAutocompleteField value="" onSelect={(c) => setPersonCompany(contact.id, c)} showLabel={false} />
+              </div>
+            )}
           </div>
-        )}
-        <EntityListsSection entityType="person" entityId={contact.id} lists={lists} />
-      </div>
+          <div>
+            <SidePanelSection title="Opportunities" />
+            {opportunities.length > 0 && (
+              <div className="mt-1.5 space-y-0.5">
+                {opportunities.map((o) => (
+                  <Link
+                    key={o.id}
+                    href={`/deals/${o.id}`}
+                    className="flex items-center gap-1.5 rounded-md px-1 py-1 text-[13px] hover:bg-muted transition-colors group"
+                  >
+                    <Banknote size={13} strokeWidth={1.75} className="text-subtle shrink-0" />
+                    <span className="truncate flex-1 min-w-0">{o.name}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-muted text-subtle shrink-0">{o.stage}</span>
+                    <span className="text-subtle shrink-0">${o.value.toLocaleString()}</span>
+                    <ArrowUpRight size={12} strokeWidth={1.75} className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+          {sequenceEnrollments.length > 0 && (
+            <div>
+              <p className="text-[13px] font-medium px-1">Sequences</p>
+              <div className="mt-1.5 space-y-0.5">
+                {sequenceEnrollments.map((e) => (
+                  <Link
+                    key={e.id}
+                    href={`/sequences/${e.sequenceId}`}
+                    className="flex items-center gap-1.5 rounded-md px-1 py-1 text-[13px] hover:bg-muted transition-colors group"
+                  >
+                    <GitBranch size={13} strokeWidth={1.75} className="text-subtle shrink-0" />
+                    <span className="truncate flex-1 min-w-0">Enrolled in {e.sequence.name}</span>
+                    <ArrowUpRight size={12} strokeWidth={1.75} className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          <EntityListsSection entityType="person" entityId={contact.id} lists={lists} />
+        </div>
+      )}
     </aside>
   );
 }

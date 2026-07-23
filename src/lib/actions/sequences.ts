@@ -227,3 +227,28 @@ export async function listSequencesForPerson(personId: string) {
     orderBy: { enrolledAt: "desc" },
   });
 }
+
+// Same as listSequencesForPerson, plus each enrollment's current step (the earliest
+// still-pending run, in step order) — for active enrollments that's "what happens next";
+// completed/cancelled enrollments just won't have one.
+export async function listSequenceEnrollmentsWithProgress(personId: string) {
+  const { workspaceId } = await requireWorkspace();
+  const enrollments = await db.sequenceEnrollment.findMany({
+    where: { workspaceId, personId },
+    include: {
+      sequence: { include: { _count: { select: { steps: true } } } },
+      runs: {
+        where: { status: "pending" },
+        include: { step: true },
+        orderBy: { step: { order: "asc" } },
+        take: 1,
+      },
+    },
+    orderBy: { enrolledAt: "desc" },
+  });
+
+  return enrollments.map((e) => ({
+    ...e,
+    currentStep: e.runs[0] ?? null,
+  }));
+}
