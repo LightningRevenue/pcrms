@@ -26,6 +26,12 @@ export default async function AdminPage() {
           >
             Background jobs
           </Link>
+          <Link
+            href="/admin/database"
+            className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          >
+            Database
+          </Link>
         </div>
       </div>
 

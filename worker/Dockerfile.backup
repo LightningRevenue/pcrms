@@ -1,0 +1,18 @@
+FROM node:22-alpine
+WORKDIR /app
+
+# pg_dump must match (or be newer than) the server's Postgres major version — postgres16-alpine
+# server, so pull the matching client tools from the same alpine package repo.
+RUN apk add --no-cache postgresql16-client
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY tsconfig.json ./
+COPY src ./src
+COPY worker ./worker
+
+CMD npx tsx worker/db-backup-worker.ts

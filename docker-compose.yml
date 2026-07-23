@@ -124,6 +124,25 @@ services:
       REDIS_URL: redis://redis:6379
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
 
+  db-backup-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile.backup
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      BACKUP_DIR: /backups
+    volumes:
+      # Bind mount (not a named volume) so the host-side Next.js app — which runs directly
+      # under pm2, not in Docker — can read the same dump files at BACKUP_DIR for the
+      # /admin/database download links, instead of them being locked inside a Docker volume.
+      - ${BACKUP_HOST_DIR:-/home/ubuntu/backups}:/backups
+
 volumes:
   pgdata:
   redisdata:
