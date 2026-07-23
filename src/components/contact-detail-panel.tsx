@@ -77,7 +77,7 @@ export function ContactDetailPanel({
   }
 
   return (
-    <aside className="w-80 shrink-0 border-r border-border h-[calc(100vh-3.5rem)] overflow-y-auto px-5 py-6">
+    <aside className="w-80 shrink-0 border-r border-border h-full overflow-y-auto px-5 py-6">
       <div className="flex items-center gap-1.5 flex-wrap">
         <CompanyLogo domain={contact.company?.domain} fallbackText="" size={16} className="bg-transparent border-0" />
         <input

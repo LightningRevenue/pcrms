@@ -6,6 +6,7 @@ import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
 import { PERSON_FIELD_LABELS } from "@/lib/field-labels";
 import { assertLimit } from "@/lib/entitlements";
+import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
 
 export type CreateContactInput = {
   firstName: string;
@@ -41,6 +42,7 @@ export async function createContact(input: CreateContactInput) {
   const companyName = input.company?.trim() || (email ? deriveCompanyNameFromEmail(email) : null);
   const emailDomain = email && !input.company?.trim() ? email.split("@")[1]?.toLowerCase().trim() : null;
   const companyId = companyName ? await resolveCompanyId(workspaceId, companyName, emailDomain) : undefined;
+  const stage = await getDefaultContactStageLabel(workspaceId);
 
   const person = await db.person.create({
     data: {
@@ -52,6 +54,7 @@ export async function createContact(input: CreateContactInput) {
       jobTitle: input.jobTitle?.trim() || null,
       linkedin: input.linkedin?.trim() || null,
       companyId,
+      stage,
       createdById: userId,
     },
   });

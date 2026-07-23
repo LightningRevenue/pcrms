@@ -9,6 +9,7 @@ import {
   reorderContactPipelineStages,
   countContactsInStage,
   deleteContactPipelineStage,
+  setDefaultContactPipelineStage,
 } from "@/lib/actions/contact-pipeline-stages";
 
 export default async function ContactsPipelineSettingsPage() {
@@ -38,6 +39,8 @@ export default async function ContactsPipelineSettingsPage() {
             countInStage: countContactsInStage,
             remove: deleteContactPipelineStage,
           }}
+          onSetDefault={setDefaultContactPipelineStage}
+          defaultHint="Click the star to pick which stage a new contact starts on (UI or CSV import). No default means new contacts stay unstaged."
         />
       </div>
     </>

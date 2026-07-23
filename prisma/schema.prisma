@@ -518,6 +518,11 @@ model ContactPipelineStage {
   label     String
   order     Int      @default(0)
   outcome   String   @default("open") // "open" | "won" | "lost" — mirrors PipelineStage's outcome badge styling
+  // At most one stage per workspace has this set — that's the stage a new contact lands on
+  // when created without an explicit stage (UI create + CSV import). Enforced in
+  // setDefaultContactPipelineStage (unsets the previous default in the same transaction),
+  // not a DB constraint, same pattern as Plan.isDefault.
+  isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
 
   workspaceId String

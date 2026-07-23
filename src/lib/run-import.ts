@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { parseCsv } from "@/lib/csv";
 import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
+import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
 import type { ObjectType } from "@/lib/actions/custom-fields";
 
 export type ImportJobData = {
@@ -42,6 +43,9 @@ export async function runImport(data: ImportJobData) {
 
   const customFieldDefs = await db.customFieldDefinition.findMany({ where: { workspaceId, objectType } });
   const customFieldById = new Map(customFieldDefs.map((d) => [d.id, d]));
+  // Fetched once per batch, not per row — every imported person lands on the same default
+  // stage (or null, if the workspace hasn't set one), same as a manually-created contact.
+  const defaultStage = objectType === "person" ? await getDefaultContactStageLabel(workspaceId) : null;
 
   const errors: RowError[] = [];
   let success = 0;
@@ -59,7 +63,7 @@ export async function runImport(data: ImportJobData) {
       if (objectType === "company") {
         await importCompanyRow(workspaceId, record, batchId, userId, customFieldById);
       } else {
-        await importPersonRow(workspaceId, record, batchId, userId, customFieldById);
+        await importPersonRow(workspaceId, record, batchId, userId, customFieldById, defaultStage);
       }
       success++;
     } catch (e) {
@@ -116,7 +120,8 @@ async function importPersonRow(
   record: Record<string, string>,
   batchId: string,
   userId: string,
-  customFieldById: Map<string, { id: string; key: string; label: string }>
+  customFieldById: Map<string, { id: string; key: string; label: string }>,
+  defaultStage: string | null
 ) {
   const firstName = record.firstName?.trim();
   if (!firstName) throw new Error("First name is required");
@@ -136,6 +141,7 @@ async function importPersonRow(
       jobTitle: record.jobTitle || null,
       linkedin: record.linkedin || null,
       companyId,
+      stage: defaultStage,
       createdById: userId,
       importBatchId: batchId,
     },

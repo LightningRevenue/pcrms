@@ -53,7 +53,7 @@ export function LeadRelationshipsPanel({
   sequenceEnrollments: EnrollmentWithProgress[];
 }) {
   return (
-    <aside className="w-80 shrink-0 border-l border-border h-[calc(100vh-3.5rem)] overflow-y-auto px-5 py-6 space-y-6">
+    <aside className="w-80 shrink-0 border-l border-border h-full overflow-y-auto px-5 py-6 space-y-6">
       <MainCompany personId={personId} company={primaryCompany} />
       <RelatedCompanies personId={personId} primaryCompanyId={primaryCompany?.id ?? null} links={companyLinks} />
       <RelatedOpportunities personId={personId} links={opportunityLinks} />

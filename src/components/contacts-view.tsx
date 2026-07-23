@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Activity, Company, ContactPipelineStage, ImportBatch, Note, Person, Task, User } from "@prisma/client";
 import {
   List,
@@ -32,7 +33,7 @@ import {
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
 import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
-import { moveContactStage } from "@/lib/actions/contact-pipeline-stages";
+import { moveContactStage, bulkMoveUnstagedContacts } from "@/lib/actions/contact-pipeline-stages";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
@@ -842,7 +843,18 @@ function KanbanView({
   onMove: (id: string, stage: string) => void;
   linkBase?: string;
 }) {
+  const router = useRouter();
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [movingUnstaged, setMovingUnstaged] = useState(false);
+  const [bulkPending, startBulkTransition] = useTransition();
+
+  function handleBulkMove(targetLabel: string) {
+    setMovingUnstaged(false);
+    startBulkTransition(async () => {
+      await bulkMoveUnstagedContacts(targetLabel);
+      router.refresh();
+    });
+  }
 
   if (stages.length === 0) {
     return (
@@ -934,6 +946,33 @@ function KanbanView({
             <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-muted text-subtle">No stage</span>
             <span className="text-[12px] text-subtle">{unstaged.length}</span>
           </div>
+
+          <div className="px-1 mb-2 relative">
+            <button
+              onClick={() => setMovingUnstaged((v) => !v)}
+              disabled={bulkPending}
+              className="w-full flex items-center justify-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-border text-[12px] text-subtle hover:text-foreground hover:border-subtle transition-colors disabled:opacity-50"
+            >
+              {bulkPending ? "Moving…" : "Move all to…"}
+            </button>
+            {movingUnstaged && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMovingUnstaged(false)} />
+                <div className="absolute left-1 right-1 top-full mt-1 border border-border rounded-lg bg-surface shadow-lg z-20 py-1 max-h-56 overflow-y-auto">
+                  {stages.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleBulkMove(s.label)}
+                      className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-muted transition-colors truncate"
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="space-y-2 px-1 pb-2 min-h-8">
             {unstaged.map((p) => {
               const name = fullName(p);

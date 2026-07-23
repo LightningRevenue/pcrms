@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, X, GripVertical } from "lucide-react";
-import type { PipelineStage } from "@prisma/client";
+import { Plus, X, GripVertical, Star } from "lucide-react";
 import {
   createPipelineStage,
   updatePipelineStage,
@@ -24,7 +23,17 @@ const OUTCOME_BADGE: Record<StageOutcome, string> = {
   lost: "bg-rose-500 text-white",
 };
 
-export function PipelineStagesManager({
+type StageLike = { id: string; label: string; outcome: string; isDefault?: boolean };
+
+type PipelineStagesManagerActions<TStage extends StageLike> = {
+  create: (label: string, outcome: StageOutcome) => Promise<TStage>;
+  update: (id: string, data: { label?: string; outcome?: StageOutcome }) => Promise<void>;
+  reorder: (orderedIds: string[]) => Promise<void>;
+  countInStage: (label: string) => Promise<number>;
+  remove: (id: string, remapToLabel?: string) => Promise<void>;
+};
+
+export function PipelineStagesManager<TStage extends StageLike>({
   stages: initial,
   itemNounPlural = "deals",
   actions = {
@@ -33,23 +42,23 @@ export function PipelineStagesManager({
     reorder: reorderPipelineStages,
     countInStage: countDealsInStage,
     remove: deletePipelineStage,
-  },
+  } as unknown as PipelineStagesManagerActions<TStage>,
+  onSetDefault,
+  defaultHint,
 }: {
-  stages: PipelineStage[];
+  stages: TStage[];
   // Label for the RemapDialog copy ("Deals are still on X" vs "Contacts are still on X").
   itemNounPlural?: string;
-  actions?: {
-    create: (label: string, outcome: StageOutcome) => Promise<PipelineStage>;
-    update: (id: string, data: { label?: string; outcome?: StageOutcome }) => Promise<void>;
-    reorder: (orderedIds: string[]) => Promise<void>;
-    countInStage: (label: string) => Promise<number>;
-    remove: (id: string, remapToLabel?: string) => Promise<void>;
-  };
+  actions?: PipelineStagesManagerActions<TStage>;
+  // Only passed for stage types that support a default (currently just contacts) — omit to
+  // hide the "set as default" star entirely, e.g. on the deals pipeline settings page.
+  onSetDefault?: (id: string) => Promise<void>;
+  defaultHint?: string;
 }) {
   const [stages, setStages] = useState(initial);
   const [adding, setAdding] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PipelineStage | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TStage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -71,7 +80,7 @@ export function PipelineStagesManager({
     startTransition(() => actions.update(id, data));
   }
 
-  async function handleDeleteClick(stage: PipelineStage) {
+  async function handleDeleteClick(stage: TStage) {
     const count = await actions.countInStage(stage.label);
     if (count > 0) {
       setDeleteTarget(stage);
@@ -79,6 +88,12 @@ export function PipelineStagesManager({
       setStages((prev) => prev.filter((s) => s.id !== stage.id));
       startTransition(() => actions.remove(stage.id));
     }
+  }
+
+  function handleSetDefault(id: string) {
+    if (!onSetDefault) return;
+    setStages((prev) => prev.map((s) => ({ ...s, isDefault: s.id === id })));
+    startTransition(() => onSetDefault(id));
   }
 
   function handleCreate(label: string, outcome: StageOutcome) {
@@ -106,6 +121,7 @@ export function PipelineStagesManager({
         </button>
       </div>
 
+      {onSetDefault && defaultHint && <p className="text-[12px] text-subtle mt-1">{defaultHint}</p>}
       {error && <p className="text-[12px] text-red-400 mt-2">{error}</p>}
 
       <div className="mt-2 border border-border rounded-md overflow-hidden">
@@ -119,6 +135,7 @@ export function PipelineStagesManager({
             onDragEnd={() => setDragId(null)}
             onUpdate={(data) => handleUpdate(stage.id, data)}
             onDelete={() => handleDeleteClick(stage)}
+            onSetDefault={onSetDefault ? () => handleSetDefault(stage.id) : undefined}
           />
         ))}
         {adding && <NewStageRow onDone={() => setAdding(false)} onCreate={handleCreate} />}
@@ -152,14 +169,16 @@ function StageRow({
   onDragEnd,
   onUpdate,
   onDelete,
+  onSetDefault,
 }: {
-  stage: PipelineStage;
+  stage: StageLike;
   dragging: boolean;
   onDragStart: () => void;
   onDragOver: () => void;
   onDragEnd: () => void;
   onUpdate: (data: { label?: string; outcome?: StageOutcome }) => void;
   onDelete: () => void;
+  onSetDefault?: () => void;
 }) {
   const [label, setLabel] = useState(stage.label);
 
@@ -177,6 +196,18 @@ function StageRow({
       }`}
     >
       <GripVertical size={14} strokeWidth={1.75} className="opacity-40 shrink-0 cursor-grab active:cursor-grabbing" />
+      {onSetDefault && (
+        <button
+          onClick={onSetDefault}
+          disabled={stage.isDefault}
+          title={stage.isDefault ? "Default stage for new contacts" : "Set as default stage for new contacts"}
+          className={`shrink-0 p-0.5 rounded transition-colors ${
+            stage.isDefault ? "text-amber-400" : "text-subtle opacity-0 group-hover:opacity-100 hover:text-foreground"
+          }`}
+        >
+          <Star size={13} strokeWidth={1.75} fill={stage.isDefault ? "currentColor" : "none"} />
+        </button>
+      )}
       <input
         value={label}
         onChange={(e) => setLabel(e.target.value)}
@@ -259,8 +290,8 @@ function RemapDialog({
   onCancel,
   onConfirm,
 }: {
-  stage: PipelineStage;
-  otherStages: PipelineStage[];
+  stage: StageLike;
+  otherStages: StageLike[];
   itemNounPlural: string;
   onCancel: () => void;
   onConfirm: (remapToLabel: string) => void;
