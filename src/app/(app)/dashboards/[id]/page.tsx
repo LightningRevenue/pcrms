@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getDashboard } from "@/lib/actions/dashboards";
 import { SalesTrackingDashboard } from "@/components/sales-tracking-dashboard";
 import { PipelineFunnelDashboard } from "@/components/pipeline-funnel-dashboard";
+import { SequencePerformanceDashboard } from "@/components/sequence-performance-dashboard";
 
 export default async function DashboardPage({
   params,
@@ -18,6 +19,10 @@ export default async function DashboardPage({
 
   if (dashboard.kind === "pipeline-funnel") {
     return <PipelineFunnelDashboard name={dashboard.name} />;
+  }
+
+  if (dashboard.kind === "sequence-performance") {
+    return <SequencePerformanceDashboard name={dashboard.name} />;
   }
 
   notFound();

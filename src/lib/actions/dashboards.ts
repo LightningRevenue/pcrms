@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 const BUILTIN_DASHBOARDS = [
   { name: "Sales Tracking", kind: "sales-tracking", order: 0 },
   { name: "Pipeline", kind: "pipeline-funnel", order: 1 },
+  { name: "Sequences", kind: "sequence-performance", order: 2 },
 ];
 
 export async function listDashboards() {
