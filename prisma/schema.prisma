@@ -64,6 +64,7 @@ model Workspace {
   userMailboxPreferences UserMailboxPreference[]
   workflows              Workflow[]
   dashboards             Dashboard[]
+  customReports          CustomReport[]
   emailOpens             EmailOpen[]
   notes                  Note[]
   noteOpportunities      NoteOpportunity[]
@@ -207,6 +208,7 @@ model User {
   twilioAccountUpdates TwilioAccount[]
   calls                Call[]
   playbooks            Playbook[]
+  customReports        CustomReport[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
@@ -920,6 +922,34 @@ model Dashboard {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, kind])
+}
+
+// A user-built report: entity + filters + grouping/aggregation + display type, all encoded as
+// JSON rather than raw SQL — the query builder UI only ever offers a fixed set of fields per
+// entity (see lib/actions/custom-reports.ts's ENTITY_FIELD_REGISTRY), so this JSON can't
+// express anything the server-side query executor doesn't already know how to build safely.
+// Listed on /dashboards alongside the four built-in Dashboard rows, not stored as one — a
+// custom report is per-creator, not a single per-workspace slot like "sales-tracking" is.
+model CustomReport {
+  id     String @id @default(cuid())
+  name   String
+  entity String // "person" | "opportunity" | "task" | "activity" | "call" | "email"
+
+  filters   Json // CustomReportFilter[] — see custom-reports.ts for the shape
+  groupBy   String? // a field name from that entity's registry, or null for an ungrouped total
+  aggregate String  @default("count") // "count" | "sum_value" (sum only valid when entity = "opportunity")
+  display   String  @default("table") // "table" | "bar" | "line"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 model EmailOpen {
