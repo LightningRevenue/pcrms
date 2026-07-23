@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Inbox as InboxIcon, Send, Reply, Plus, UserCheck, RefreshCw, User as UserIcon, Building2, Filter, Check, X, Megaphone } from "lucide-react";
+import { ChevronDown, Inbox as InboxIcon, Send, Reply, Plus, UserCheck, RefreshCw, User as UserIcon, Building2, Filter, Check, X, Megaphone, Eye } from "lucide-react";
 import DOMPurify from "isomorphic-dompurify";
 import type { InboxThread } from "@/lib/actions/inbox";
 import { syncInboxNow } from "@/lib/actions/inbox";
@@ -298,6 +298,7 @@ export function UnifiedInboxView({
                 const last = thread.messages[thread.messages.length - 1];
                 const name = personName(last.person) || last.from;
                 const active = selected?.threadId === thread.threadId;
+                const lastSent = [...thread.messages].reverse().find((m) => m.direction === "sent");
                 return (
                   <button
                     key={thread.threadId}
@@ -325,11 +326,22 @@ export function UnifiedInboxView({
                       <p className="text-[12px] text-subtle truncate mt-0.5">
                         {last.bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 90)}
                       </p>
-                      {thread.messages.length > 1 && (
-                        <span className="inline-block mt-1 text-[10.5px] px-1.5 py-0.5 rounded-full bg-surface border border-border text-subtle">
-                          {thread.messages.length} messages
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {thread.messages.length > 1 && (
+                          <span className="text-[10.5px] px-1.5 py-0.5 rounded-full bg-surface border border-border text-subtle">
+                            {thread.messages.length} messages
+                          </span>
+                        )}
+                        {lastSent && lastSent.opens.length > 0 && (
+                          <span
+                            className="flex items-center gap-1 text-[10.5px] text-emerald-400"
+                            title={`Opened ${lastSent.opens.length} time${lastSent.opens.length === 1 ? "" : "s"}`}
+                          >
+                            <Eye size={11} strokeWidth={1.75} />
+                            {lastSent.opens.length}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 );
@@ -415,6 +427,15 @@ export function UnifiedInboxView({
                                 title={`Sent from campaign: ${message.campaignMember.campaign.name}`}
                               >
                                 Marketing
+                              </span>
+                            )}
+                            {message.direction === "sent" && message.opens.length > 0 && (
+                              <span
+                                className="shrink-0 flex items-center gap-1 text-[10.5px] text-emerald-400"
+                                title={`Opened ${message.opens.length} time${message.opens.length === 1 ? "" : "s"}`}
+                              >
+                                <Eye size={11} strokeWidth={1.75} />
+                                {message.opens.length}
                               </span>
                             )}
                             <span className="text-[12px] text-subtle truncate">
