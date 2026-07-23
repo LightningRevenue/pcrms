@@ -50,7 +50,7 @@ export async function listTasksDueToday() {
 
   return db.task.findMany({
     where: { workspaceId, dueAt: { gte: start, lt: end } },
-    include: { person: true },
+    include: { person: true, createdBy: true },
     orderBy: [{ done: "asc" }, { dueAt: "asc" }],
   });
 }
@@ -59,7 +59,7 @@ export async function listTasksWithDueDate() {
   const { workspaceId } = await requireWorkspace();
   return db.task.findMany({
     where: { workspaceId, dueAt: { not: null } },
-    include: { person: { include: { company: true } } },
+    include: { person: { include: { company: true } }, createdBy: true },
     orderBy: { dueAt: "asc" },
   });
 }

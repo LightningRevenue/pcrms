@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Company, Person, Task } from "@prisma/client";
+import type { Company, Person, Task, User } from "@prisma/client";
 import { CheckSquare, AlarmClock, CalendarDays, CalendarClock } from "lucide-react";
 import { TaskRow } from "@/components/task-row";
+import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
 
-type TaskWithPerson = Task & { person: Person & { company: Company | null } };
+type TaskWithPerson = Task & { person: Person & { company: Company | null }; createdBy: User | null };
 
 const TABS = [
   { key: "overdue", label: "Overdue", icon: AlarmClock },
@@ -36,16 +37,26 @@ function bucket(tasks: TaskWithPerson[]) {
   return { overdue, today, upcoming };
 }
 
-export function TasksView({ tasks }: { tasks: TaskWithPerson[] }) {
+export function TasksView({ tasks, users = [] }: { tasks: TaskWithPerson[]; users?: WorkspaceUser[] }) {
   const [active, setActive] = useState<TabKey>("today");
-  const buckets = useMemo(() => bucket(tasks), [tasks]);
+  const [ownerFilter, setOwnerFilter] = useState<Set<string>>(new Set());
+
+  const filteredTasks = useMemo(() => {
+    if (ownerFilter.size === 0) return tasks;
+    return tasks.filter((t) => ownerFilter.has(t.createdById ?? NO_OWNER_KEY));
+  }, [tasks, ownerFilter]);
+
+  const buckets = useMemo(() => bucket(filteredTasks), [filteredTasks]);
   const rows = buckets[active];
 
   return (
     <div className="flex flex-col h-screen">
-      <div className="h-12 shrink-0 flex items-center gap-1.5 px-6 border-b border-border">
-        <CheckSquare size={14} strokeWidth={1.75} className="text-violet-400" />
-        <span className="font-medium text-[13px]">Tasks</span>
+      <div className="h-12 shrink-0 flex items-center justify-between px-6 border-b border-border">
+        <div className="flex items-center gap-1.5">
+          <CheckSquare size={14} strokeWidth={1.75} className="text-violet-400" />
+          <span className="font-medium text-[13px]">Tasks</span>
+        </div>
+        <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
       </div>
 
       <div className="flex items-center gap-5 border-b border-border px-6">
