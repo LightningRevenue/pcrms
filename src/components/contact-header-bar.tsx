@@ -17,6 +17,8 @@ import { deleteContacts } from "@/lib/actions/contacts";
 import { createTask } from "@/lib/actions/tasks";
 import { createNote } from "@/lib/actions/notes";
 
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
+
 export function ContactHeaderBar({
   contactId,
   name,
@@ -29,6 +31,7 @@ export function ContactHeaderBar({
   opportunities,
   isFavorited,
   mailboxes,
+  users = [],
 }: {
   contactId: string;
   name: string;
@@ -41,6 +44,7 @@ export function ContactHeaderBar({
   opportunities?: Opportunity[];
   isFavorited: boolean;
   mailboxes: MailboxOption[];
+  users?: WorkspaceUser[];
 }) {
   const router = useRouter();
   const [converting, setConverting] = useState(false);
@@ -238,6 +242,7 @@ export function ContactHeaderBar({
         <CreateNotePanel
           relatedTo={name}
           opportunities={opportunities}
+          users={users}
           onClose={() => setCreatingNote(false)}
           onSave={handleCreateNote}
         />

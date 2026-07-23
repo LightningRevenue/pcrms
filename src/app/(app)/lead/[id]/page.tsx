@@ -136,6 +136,7 @@ export default async function LeadDetailPage({
             opportunities={openOpportunities}
             mailboxes={mailboxes}
             calls={calls}
+            users={users}
           />
         </div>
         <LeadRelationshipsPanel

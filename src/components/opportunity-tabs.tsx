@@ -32,6 +32,7 @@ export function OpportunityTabs({
   emails,
   notes,
   mailboxes,
+  users = [],
 }: {
   events: ActivityEntry[];
   opportunityId: string;
@@ -46,6 +47,7 @@ export function OpportunityTabs({
   })[];
   notes: NoteWithDeals[];
   mailboxes: MailboxOption[];
+  users?: { id: string; name: string | null; email: string | null }[];
 }) {
   const [active, setActive] = useState<TabKey>("timeline");
 
@@ -84,6 +86,7 @@ export function OpportunityTabs({
             contactName={contactName}
             opportunityId={opportunityId}
             notes={notes}
+            users={users}
           />
         ) : active === "emails" ? (
           personId ? (

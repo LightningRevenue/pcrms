@@ -68,6 +68,7 @@ model Workspace {
   emailOpens             EmailOpen[]
   notes                  Note[]
   noteOpportunities      NoteOpportunity[]
+  noteMentions           NoteMention[]
   campaigns              Campaign[]
   campaignMailboxes      CampaignMailbox[]
   campaignMembers        CampaignMember[]
@@ -197,6 +198,7 @@ model User {
   ownedOpportunities   Opportunity[]           @relation("OpportunityOwner")
   createdOpportunities Opportunity[]           @relation("OpportunityCreatedBy")
   notes                Note[]
+  noteMentions         NoteMention[]
   sequences            Sequence[]
   sequenceEnrollments  SequenceEnrollment[]
   favorites            Favorite[]
@@ -983,8 +985,30 @@ model Note {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   opportunities NoteOpportunity[]
+  mentions      NoteMention[]
 
   @@index([personId])
+  @@index([workspaceId])
+}
+
+// One row per @mentioned user on a Note — drives both the in-app Notification (bell) and the
+// "New Mention" email sent via the workspace's configured notification inbox. Written once at
+// note creation, never updated (editing a note's mentions isn't supported — create a new note).
+model NoteMention {
+  id     String @id @default(cuid())
+  noteId String
+  note   Note   @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, userId])
+  @@index([userId])
   @@index([workspaceId])
 }
 

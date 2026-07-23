@@ -4,15 +4,20 @@ import { useState } from "react";
 import type { Opportunity } from "@prisma/client";
 import { Minus, X } from "lucide-react";
 import { OpportunityMultiSelect } from "@/components/opportunity-multi-select";
+import { NoteMentionInput } from "@/components/note-mention-input";
+
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
 export function CreateNotePanel({
   relatedTo,
   opportunities = [],
+  users = [],
   onClose,
   onSave,
 }: {
   relatedTo: string;
   opportunities?: Opportunity[];
+  users?: WorkspaceUser[];
   onClose: () => void;
   onSave: (body: string, opportunityIds: string[]) => void;
 }) {
@@ -65,11 +70,12 @@ export function CreateNotePanel({
       {!minimized && (
         <div className="flex-1 min-h-0 flex flex-col">
           <div className="px-4 py-3 flex-1 min-h-0">
-            <textarea
+            <NoteMentionInput
               autoFocus
               value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Write a note…"
+              onChange={setBody}
+              users={users}
+              placeholder="Write a note… type @ to mention someone"
               className="w-full h-full resize-none text-[13px] outline-none bg-transparent placeholder:text-subtle"
             />
           </div>

@@ -3,8 +3,10 @@
 import { useState, useTransition } from "react";
 import { Plus, StickyNote } from "lucide-react";
 import { CreateNotePanel } from "@/components/create-note-panel";
-import type { NoteWithDeals } from "@/components/contact-notes-tab";
+import { renderNoteBody, type NoteWithDeals } from "@/components/contact-notes-tab";
 import { createNote } from "@/lib/actions/notes";
+
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
 function relativeTime(date: Date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -17,10 +19,10 @@ function relativeTime(date: Date) {
   return `${days}d ago`;
 }
 
-function NoteRow({ note }: { note: NoteWithDeals }) {
+function NoteRow({ note, users }: { note: NoteWithDeals; users: WorkspaceUser[] }) {
   return (
     <div className="px-4 py-3">
-      <p className="text-[13px] whitespace-pre-wrap">{note.body}</p>
+      <p className="text-[13px] whitespace-pre-wrap">{renderNoteBody(note.body, users)}</p>
       <span className="text-[12px] text-subtle mt-2 block">
         {note.createdBy?.name ?? note.createdBy?.email ?? "Someone"} · {relativeTime(note.createdAt)}
       </span>
@@ -33,11 +35,13 @@ export function OpportunityNotesTab({
   contactName,
   opportunityId,
   notes,
+  users = [],
 }: {
   personId: string | null;
   contactName: string;
   opportunityId: string;
   notes: NoteWithDeals[];
+  users?: WorkspaceUser[];
 }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,13 +84,13 @@ export function OpportunityNotesTab({
       ) : (
         <div className="border border-border rounded-lg divide-y divide-border">
           {notes.map((n) => (
-            <NoteRow key={n.id} note={n} />
+            <NoteRow key={n.id} note={n} users={users} />
           ))}
         </div>
       )}
 
       {creating && personId && (
-        <CreateNotePanel relatedTo={contactName} onClose={() => setCreating(false)} onSave={(body) => addNote(body)} />
+        <CreateNotePanel relatedTo={contactName} users={users} onClose={() => setCreating(false)} onSave={(body) => addNote(body)} />
       )}
     </div>
   );

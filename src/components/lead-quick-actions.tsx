@@ -13,6 +13,8 @@ import { convertContactToOpportunity } from "@/lib/actions/opportunities";
 import { createTask } from "@/lib/actions/tasks";
 import { createNote } from "@/lib/actions/notes";
 
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
+
 // Quick-action row for /lead/[id]'s left column — same actions ContactHeaderBar puts in the
 // top bar on /contacts/[id], just relocated to sit under the contact's name instead.
 export function LeadQuickActions({
@@ -24,6 +26,7 @@ export function LeadQuickActions({
   stages,
   opportunities,
   mailboxes,
+  users = [],
 }: {
   contactId: string;
   name: string;
@@ -33,6 +36,7 @@ export function LeadQuickActions({
   stages: PipelineStage[];
   opportunities?: Opportunity[];
   mailboxes: MailboxOption[];
+  users?: WorkspaceUser[];
 }) {
   const [converting, setConverting] = useState(false);
   const [addingToSequence, setAddingToSequence] = useState(false);
@@ -171,6 +175,7 @@ export function LeadQuickActions({
         <CreateNotePanel
           relatedTo={name}
           opportunities={opportunities}
+          users={users}
           onClose={() => setCreatingNote(false)}
           onSave={handleCreateNote}
         />

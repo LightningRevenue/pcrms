@@ -87,6 +87,7 @@ export function OpportunityDetailView({
             emails={emails}
             notes={notes}
             mailboxes={mailboxes}
+            users={users}
           />
         </div>
       </div>

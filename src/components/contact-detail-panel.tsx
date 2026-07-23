@@ -109,6 +109,7 @@ export function ContactDetailPanel({
             stages={quickActions.stages}
             opportunities={opportunities}
             mailboxes={quickActions.mailboxes}
+            users={users}
           />
         </div>
       )}

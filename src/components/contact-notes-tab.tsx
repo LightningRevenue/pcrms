@@ -9,6 +9,28 @@ import { createNote } from "@/lib/actions/notes";
 
 export type NoteWithDeals = Note & { createdBy: User | null; opportunities: (NoteOpportunity & { opportunity: Opportunity })[] };
 
+type WorkspaceUser = { id: string; name: string | null; email: string | null };
+
+// Highlights "@Full Name" runs that match a real workspace member — same substring format
+// NoteMentionInput inserts, so this is display-only re-detection, not re-parsing anything new.
+// Exported since opportunity-notes-tab.tsx's note rows need the same highlighting.
+export function renderNoteBody(body: string, users: WorkspaceUser[]) {
+  const names = users.map((u) => u.name ?? u.email).filter((n): n is string => !!n);
+  if (names.length === 0) return body;
+
+  const pattern = new RegExp(`@(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g");
+  const parts = body.split(pattern);
+  return parts.map((part, i) =>
+    names.includes(part) ? (
+      <span key={i} className="text-accent font-medium">
+        @{part}
+      </span>
+    ) : (
+      part
+    )
+  );
+}
+
 function relativeTime(date: Date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return "just now";
@@ -20,11 +42,11 @@ function relativeTime(date: Date) {
   return `${days}d ago`;
 }
 
-function NoteRow({ note }: { note: NoteWithDeals }) {
+function NoteRow({ note, users }: { note: NoteWithDeals; users: WorkspaceUser[] }) {
   const deals = note.opportunities.map((o) => o.opportunity);
   return (
     <div className="px-4 py-3">
-      <p className="text-[13px] whitespace-pre-wrap">{note.body}</p>
+      <p className="text-[13px] whitespace-pre-wrap">{renderNoteBody(note.body, users)}</p>
       <div className="flex items-center gap-2 mt-2">
         <span className="text-[12px] text-subtle">
           {note.createdBy?.name ?? note.createdBy?.email ?? "Someone"} · {relativeTime(note.createdAt)}
@@ -40,11 +62,13 @@ export function ContactNotesTab({
   contactName,
   notes,
   opportunities = [],
+  users = [],
 }: {
   personId: string;
   contactName: string;
   notes: NoteWithDeals[];
   opportunities?: Opportunity[];
+  users?: WorkspaceUser[];
 }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +109,7 @@ export function ContactNotesTab({
       ) : (
         <div className="border border-border rounded-lg divide-y divide-border">
           {notes.map((n) => (
-            <NoteRow key={n.id} note={n} />
+            <NoteRow key={n.id} note={n} users={users} />
           ))}
         </div>
       )}
@@ -94,6 +118,7 @@ export function ContactNotesTab({
         <CreateNotePanel
           relatedTo={contactName}
           opportunities={opportunities}
+          users={users}
           onClose={() => setCreating(false)}
           onSave={addNote}
         />

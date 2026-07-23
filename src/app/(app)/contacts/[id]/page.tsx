@@ -88,6 +88,7 @@ export default async function ContactDetailPage({
         opportunities={openOpportunities}
         isFavorited={favorited}
         mailboxes={mailboxes}
+        users={users}
       />
       <div className="flex flex-1 min-h-0">
         <ContactDetailPanel
@@ -110,6 +111,7 @@ export default async function ContactDetailPage({
             opportunities={openOpportunities}
             mailboxes={mailboxes}
             calls={calls}
+            users={users}
           />
         </div>
       </div>

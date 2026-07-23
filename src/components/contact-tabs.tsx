@@ -45,6 +45,7 @@ export function ContactTabs({
   opportunities,
   mailboxes,
   calls,
+  users = [],
 }: {
   events: ActivityEntry[];
   personId: string;
@@ -60,6 +61,7 @@ export function ContactTabs({
   opportunities: Opportunity[];
   mailboxes: MailboxOption[];
   calls: (Call & { createdBy: User | null })[];
+  users?: { id: string; name: string | null; email: string | null }[];
 }) {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab");
@@ -93,7 +95,7 @@ export function ContactTabs({
         ) : active === "tasks" ? (
           <ContactTasksTab personId={personId} contactName={personName} tasks={tasks} opportunities={opportunities} />
         ) : active === "notes" ? (
-          <ContactNotesTab personId={personId} contactName={personName} notes={notes} opportunities={opportunities} />
+          <ContactNotesTab personId={personId} contactName={personName} notes={notes} opportunities={opportunities} users={users} />
         ) : active === "emails" ? (
           <EmailThreadList
             personId={personId}

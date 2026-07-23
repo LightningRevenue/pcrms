@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireWorkspace, opportunityVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { assertLimit } from "@/lib/entitlements";
+import { sendOwnershipEmail } from "@/lib/ownership-notification";
 
 export type OpportunityStage = string;
 
@@ -216,7 +217,10 @@ export async function moveOpportunityStage(id: string, stage: OpportunityStage) 
 export async function setOpportunityOwner(id: string, ownerId: string | null) {
   const { userId, workspaceId } = await requireWorkspace();
 
-  const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId }, include: { owner: true } });
+  const [current, actor] = await Promise.all([
+    db.opportunity.findUniqueOrThrow({ where: { id, workspaceId }, include: { owner: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+  ]);
   const oldValue = current.owner?.name ?? current.owner?.email ?? "";
 
   const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
@@ -236,6 +240,18 @@ export async function setOpportunityOwner(id: string, ownerId: string | null) {
       actorId: userId,
     },
   });
+
+  // Only notify when someone new is actually assigned (not on unassignment), and skip
+  // self-assignment — no point emailing yourself that you just did something.
+  if (next?.email && next.id !== userId) {
+    await sendOwnershipEmail({
+      recipientEmail: next.email,
+      dealId: id,
+      dealName: current.name || "Untitled",
+      assignedByName: actor?.name ?? actor?.email ?? "Someone",
+      workspaceId,
+    });
+  }
 
   revalidatePath("/deals");
   revalidatePath(`/deals/${id}`);
