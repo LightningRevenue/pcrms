@@ -81,6 +81,7 @@ type ColumnKey = StandardColumnKey | `custom:${string}`;
 const DEFAULT_VISIBLE: ColumnKey[] = STANDARD_COLUMNS.map((c) => c.key);
 const STORAGE_KEY = "contacts:visibleColumns";
 const LEAD_VIEW_STORAGE_KEY = "contacts:leadViewEnabled";
+const NO_OWNER_KEY = "no-owner";
 
 // Toggle for the HubSpot-style 3-column /lead/[id] page (see lead-relationships-panel.tsx),
 // kept separate from /contacts/[id] so it can be iterated on without risk. Persisted so the
@@ -245,6 +246,9 @@ export function ContactsView({
   const [sort, setSort] = useState<{ key: ColumnKey; dir: SortDir } | null>(null);
   const [changingOwner, setChangingOwner] = useState(false);
   const [previewPerson, setPreviewPerson] = useState<PersonRow | null>(null);
+  // Empty set = no filter applied (show everyone). "no-owner" is a synthetic id alongside real
+  // user ids — OR semantics: a person matches if their owner is in this set.
+  const [ownerFilter, setOwnerFilter] = useState<Set<string>>(new Set());
 
   function handleSort(key: ColumnKey) {
     setSort((prev) => {
@@ -254,12 +258,17 @@ export function ContactsView({
     });
   }
 
+  const ownerFilteredPeople = useMemo(() => {
+    if (ownerFilter.size === 0) return people;
+    return people.filter((p) => ownerFilter.has(p.ownerId ?? NO_OWNER_KEY));
+  }, [people, ownerFilter]);
+
   const sortedPeople = useMemo(() => {
-    if (!sort) return people;
-    const withValue = people.map((p) => ({ p, v: sortValue(p, sort.key, lastActivityByPerson, nextTaskByPerson) }));
+    if (!sort) return ownerFilteredPeople;
+    const withValue = ownerFilteredPeople.map((p) => ({ p, v: sortValue(p, sort.key, lastActivityByPerson, nextTaskByPerson) }));
     withValue.sort((a, b) => compareValues(a.v, b.v, sort.dir));
     return withValue.map((x) => x.p);
-  }, [people, sort, lastActivityByPerson, nextTaskByPerson]);
+  }, [ownerFilteredPeople, sort, lastActivityByPerson, nextTaskByPerson]);
 
   function handleDeleteSelected() {
     const ids = Array.from(selected);
@@ -319,7 +328,10 @@ export function ContactsView({
         <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
           <List size={14} strokeWidth={1.75} />
           All People
-          <span className="text-subtle">· {people.length}</span>
+          <span className="text-subtle">
+            · {sortedPeople.length}
+            {ownerFilter.size > 0 && ` of ${people.length}`}
+          </span>
           <ChevronDown size={13} strokeWidth={1.75} />
         </button>
 
@@ -345,10 +357,7 @@ export function ContactsView({
 
           <div className="w-px h-4 bg-border mx-1" />
 
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-            <ListFilter size={14} strokeWidth={1.75} />
-            Filter
-          </button>
+          <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
           {view === "list" && (
             <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
           )}
@@ -373,14 +382,14 @@ export function ContactsView({
           />
         ) : (
           <div className="p-6">
-            <KanbanView people={people} />
+            <KanbanView people={ownerFilteredPeople} />
           </div>
         )}
       </div>
 
       {view === "list" && (
         <div className="h-9 shrink-0 flex items-center justify-end gap-6 px-6 border-t border-border text-[12px] text-subtle">
-          <span>Unique of Emails {people.length}</span>
+          <span>Unique of Emails {sortedPeople.length}</span>
         </div>
       )}
 
@@ -456,6 +465,81 @@ export function ContactsView({
             setDraft({ personId: p.id, to: p.email ? [p.email] : [], contactFirstName: p.firstName });
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function OwnerFilterPicker({
+  users,
+  selected,
+  onChange,
+}: {
+  users: WorkspaceUser[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  function toggle(key: string) {
+    const next = new Set(selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange(next);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] transition-colors ${
+          selected.size > 0 ? "text-accent" : "text-subtle hover:bg-muted hover:text-foreground"
+        }`}
+      >
+        <ListFilter size={14} strokeWidth={1.75} />
+        Filter
+        {selected.size > 0 && (
+          <span className="px-1.5 py-0.5 rounded-full bg-accent/15 text-accent text-[11px]">{selected.size}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-1.5 w-56 border border-border rounded-lg bg-surface shadow-lg z-20 py-1 max-h-96 overflow-auto">
+          <div className="flex items-center justify-between px-3 py-1.5">
+            <p className="text-[11px] font-medium text-subtle uppercase tracking-wide">Owner</p>
+            {selected.size > 0 && (
+              <button onClick={() => onChange(new Set())} className="text-[11px] text-subtle hover:text-foreground transition-colors">
+                Clear
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => toggle(NO_OWNER_KEY)}
+            className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors"
+          >
+            <span className="text-subtle">No owner</span>
+            {selected.has(NO_OWNER_KEY) && <Check size={14} strokeWidth={2} />}
+          </button>
+          {users.map((u) => (
+            <button
+              key={u.id}
+              onClick={() => toggle(u.id)}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors truncate"
+            >
+              <span className="truncate">{u.name ?? u.email}</span>
+              {selected.has(u.id) && <Check size={14} strokeWidth={2} className="shrink-0" />}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
