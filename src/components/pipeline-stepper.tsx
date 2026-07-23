@@ -1,17 +1,17 @@
 "use client";
 
 import { Check } from "lucide-react";
-import type { PipelineStage } from "@prisma/client";
-import type { OpportunityStage } from "@/components/opportunities-view";
+
+type StageLike = { id: string; label: string };
 
 export function PipelineStepper({
   stage,
   stages,
   onChange,
 }: {
-  stage: OpportunityStage;
-  stages: PipelineStage[];
-  onChange: (stage: OpportunityStage) => void;
+  stage: string | null;
+  stages: StageLike[];
+  onChange: (stage: string) => void;
 }) {
   const currentIndex = stages.findIndex((s) => s.label === stage);
 

@@ -48,6 +48,7 @@ model Workspace {
   tasks                  Task[]
   opportunities          Opportunity[]
   pipelineStages         PipelineStage[]
+  contactPipelineStages  ContactPipelineStage[]
   emails                 Email[]
   emailOpportunities     EmailOpportunity[]
   taskOpportunities      TaskOpportunity[]
@@ -337,6 +338,11 @@ model Person {
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
+  // Free-text label matching a ContactPipelineStage.label in this workspace — same pattern as
+  // Opportunity.stage (not a foreign key, so renaming a stage just needs a bulk string update,
+  // done in renameContactPipelineStage). No default stage until a workspace defines its own.
+  stage String?
+
   // Primary company, shown by default on the person's card/list row. Additional companies
   // (e.g. a consultant working with several clients) go through PersonCompany.
   companyId String?
@@ -494,6 +500,24 @@ model PipelineStage {
   label     String
   order     Int      @default(0)
   outcome   String   @default("open") // "open" | "won" | "lost"
+  createdAt DateTime @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, label])
+}
+
+// Same shape as PipelineStage but for the /contacts Kanban board — kept as its own model
+// (not a shared entityType-discriminated table) since a deal's stages ("New" -> "Customer")
+// and a contact's engagement stages mean different things and are managed on separate
+// Settings pages. No default rows seeded — the workspace defines its own stages, unlike
+// PipelineStage's legacy 5-stage seed.
+model ContactPipelineStage {
+  id        String   @id @default(cuid())
+  label     String
+  order     Int      @default(0)
+  outcome   String   @default("open") // "open" | "won" | "lost" — mirrors PipelineStage's outcome badge styling
   createdAt DateTime @default(now())
 
   workspaceId String

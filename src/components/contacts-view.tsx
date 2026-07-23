@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import type { Activity, Company, ImportBatch, Note, Person, Task, User } from "@prisma/client";
+import type { Activity, Company, ContactPipelineStage, ImportBatch, Note, Person, Task, User } from "@prisma/client";
 import {
   List,
   KanbanSquare,
@@ -32,6 +32,7 @@ import {
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
 import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
+import { moveContactStage } from "@/lib/actions/contact-pipeline-stages";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
@@ -216,7 +217,7 @@ function useVisibleColumns(customFields: PersonCustomField[]) {
 type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
 export function ContactsView({
-  people,
+  people: initialPeople,
   lastActivityByPerson,
   nextTaskByPerson,
   tasksByPerson = new Map(),
@@ -225,6 +226,7 @@ export function ContactsView({
   title = "People",
   onAddClick,
   users = [],
+  stages = [],
 }: {
   people: PersonRow[];
   lastActivityByPerson: Map<string, Activity>;
@@ -235,7 +237,9 @@ export function ContactsView({
   title?: string;
   onAddClick?: () => void;
   users?: WorkspaceUser[];
+  stages?: ContactPipelineStage[];
 }) {
+  const [people, setPeople] = useState(initialPeople);
   const [view, setView] = useState<"list" | "kanban">("list");
   const { visible: visibleColumns, toggle: toggleColumn } = useVisibleColumns(customFields);
   const leadView = useLeadView();
@@ -269,6 +273,11 @@ export function ContactsView({
     withValue.sort((a, b) => compareValues(a.v, b.v, sort.dir));
     return withValue.map((x) => x.p);
   }, [ownerFilteredPeople, sort, lastActivityByPerson, nextTaskByPerson]);
+
+  function moveContact(id: string, stage: string) {
+    setPeople((prev) => prev.map((p) => (p.id === id ? { ...p, stage } : p)));
+    startTransition(() => moveContactStage(id, stage));
+  }
 
   function handleDeleteSelected() {
     const ids = Array.from(selected);
@@ -382,7 +391,12 @@ export function ContactsView({
           />
         ) : (
           <div className="p-6">
-            <KanbanView people={ownerFilteredPeople} />
+            <KanbanView
+              people={ownerFilteredPeople}
+              stages={stages}
+              onMove={moveContact}
+              linkBase={leadView.enabled ? "/lead" : "/contacts"}
+            />
           </div>
         )}
       </div>
@@ -811,13 +825,137 @@ function ListView({
   );
 }
 
-function KanbanView({ people }: { people: PersonRow[] }) {
+const OUTCOME_BADGE: Record<string, string> = {
+  open: "bg-blue-500 text-white",
+  won: "bg-emerald-500 text-white",
+  lost: "bg-rose-500 text-white",
+};
+
+function KanbanView({
+  people,
+  stages,
+  onMove,
+  linkBase = "/contacts",
+}: {
+  people: PersonRow[];
+  stages: ContactPipelineStage[];
+  onMove: (id: string, stage: string) => void;
+  linkBase?: string;
+}) {
+  const [dragOver, setDragOver] = useState<string | null>(null);
+
+  if (stages.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-8 text-center">
+        <p className="text-[13px] text-subtle">
+          No stages defined yet —{" "}
+          <Link href="/settings/contacts-pipeline" className="text-accent hover:underline">
+            set up your contacts pipeline
+          </Link>{" "}
+          to group people by stage here.
+        </p>
+        <p className="text-[12px] text-subtle mt-1">{people.length} people, ungrouped for now.</p>
+      </div>
+    );
+  }
+
+  const unstaged = people.filter((p) => !p.stage || !stages.some((s) => s.label === p.stage));
+
   return (
-    <div className="rounded-lg border border-dashed border-border p-8 text-center">
-      <p className="text-[13px] text-subtle">
-        Kanban groups by status — add a status field in Settings to enable this view.
-      </p>
-      <p className="text-[12px] text-subtle mt-1">{people.length} people, ungrouped for now.</p>
+    <div className="flex gap-4 items-start">
+      {stages.map((stage) => {
+        const items = people.filter((p) => p.stage === stage.label);
+        return (
+          <div
+            key={stage.id}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(stage.label);
+            }}
+            onDragLeave={() => setDragOver((s) => (s === stage.label ? null : s))}
+            onDrop={(e) => {
+              e.preventDefault();
+              const id = e.dataTransfer.getData("text/person-id");
+              if (id) onMove(id, stage.label);
+              setDragOver(null);
+            }}
+            className={`w-56 shrink-0 rounded-lg transition-colors ${dragOver === stage.label ? "bg-muted/60" : ""}`}
+          >
+            <div className="flex items-center gap-2 px-1 mb-2 pt-1">
+              <span className={`px-2 py-0.5 rounded-full text-[12px] font-medium ${OUTCOME_BADGE[stage.outcome] ?? "bg-muted"}`}>
+                {stage.label}
+              </span>
+              <span className="text-[12px] text-subtle">{items.length}</span>
+            </div>
+
+            <div className="space-y-2 px-1 pb-2 min-h-8">
+              {items.map((p) => {
+                const name = fullName(p);
+                const owner = p.owner?.name ?? p.owner?.email ?? "";
+                return (
+                  <div
+                    key={p.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/person-id", p.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    className="border border-border rounded-lg px-3 py-2.5 bg-surface cursor-grab active:cursor-grabbing space-y-1.5"
+                  >
+                    <Link href={`${linkBase}/${p.id}`} className="text-[13px] leading-tight truncate block hover:underline">
+                      {name || "Untitled"}
+                    </Link>
+                    {p.company && (
+                      <div className="flex items-center gap-1.5 text-[12px] text-subtle truncate">
+                        <Building2 size={12} strokeWidth={1.75} className="shrink-0" />
+                        <span className="truncate">{p.company.name}</span>
+                      </div>
+                    )}
+                    {owner && (
+                      <div className="flex items-center gap-1.5 text-[12px] text-subtle truncate">
+                        <Avatar name={owner} />
+                        <span className="truncate">{owner}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {unstaged.length > 0 && (
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          className="w-56 shrink-0 rounded-lg"
+        >
+          <div className="flex items-center gap-2 px-1 mb-2 pt-1">
+            <span className="px-2 py-0.5 rounded-full text-[12px] font-medium bg-muted text-subtle">No stage</span>
+            <span className="text-[12px] text-subtle">{unstaged.length}</span>
+          </div>
+          <div className="space-y-2 px-1 pb-2 min-h-8">
+            {unstaged.map((p) => {
+              const name = fullName(p);
+              return (
+                <div
+                  key={p.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/person-id", p.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  className="border border-border rounded-lg px-3 py-2.5 bg-surface cursor-grab active:cursor-grabbing"
+                >
+                  <Link href={`${linkBase}/${p.id}`} className="text-[13px] leading-tight truncate block hover:underline">
+                    {name || "Untitled"}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -24,7 +24,28 @@ const OUTCOME_BADGE: Record<StageOutcome, string> = {
   lost: "bg-rose-500 text-white",
 };
 
-export function PipelineStagesManager({ stages: initial }: { stages: PipelineStage[] }) {
+export function PipelineStagesManager({
+  stages: initial,
+  itemNounPlural = "deals",
+  actions = {
+    create: createPipelineStage,
+    update: updatePipelineStage,
+    reorder: reorderPipelineStages,
+    countInStage: countDealsInStage,
+    remove: deletePipelineStage,
+  },
+}: {
+  stages: PipelineStage[];
+  // Label for the RemapDialog copy ("Deals are still on X" vs "Contacts are still on X").
+  itemNounPlural?: string;
+  actions?: {
+    create: (label: string, outcome: StageOutcome) => Promise<PipelineStage>;
+    update: (id: string, data: { label?: string; outcome?: StageOutcome }) => Promise<void>;
+    reorder: (orderedIds: string[]) => Promise<void>;
+    countInStage: (label: string) => Promise<number>;
+    remove: (id: string, remapToLabel?: string) => Promise<void>;
+  };
+}) {
   const [stages, setStages] = useState(initial);
   const [adding, setAdding] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -40,23 +61,23 @@ export function PipelineStagesManager({ stages: initial }: { stages: PipelineSta
       const to = next.findIndex((s) => s.id === overId);
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      startTransition(() => reorderPipelineStages(next.map((s) => s.id)));
+      startTransition(() => actions.reorder(next.map((s) => s.id)));
       return next;
     });
   }
 
   function handleUpdate(id: string, data: { label?: string; outcome?: StageOutcome }) {
     setStages((prev) => prev.map((s) => (s.id === id ? { ...s, ...data } : s)));
-    startTransition(() => updatePipelineStage(id, data));
+    startTransition(() => actions.update(id, data));
   }
 
   async function handleDeleteClick(stage: PipelineStage) {
-    const count = await countDealsInStage(stage.label);
+    const count = await actions.countInStage(stage.label);
     if (count > 0) {
       setDeleteTarget(stage);
     } else {
       setStages((prev) => prev.filter((s) => s.id !== stage.id));
-      startTransition(() => deletePipelineStage(stage.id));
+      startTransition(() => actions.remove(stage.id));
     }
   }
 
@@ -64,7 +85,7 @@ export function PipelineStagesManager({ stages: initial }: { stages: PipelineSta
     setError(null);
     startTransition(async () => {
       try {
-        const stage = await createPipelineStage(label, outcome);
+        const stage = await actions.create(label, outcome);
         setStages((prev) => [...prev, stage]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
@@ -110,10 +131,11 @@ export function PipelineStagesManager({ stages: initial }: { stages: PipelineSta
         <RemapDialog
           stage={deleteTarget}
           otherStages={stages.filter((s) => s.id !== deleteTarget.id)}
+          itemNounPlural={itemNounPlural}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={(remapToLabel) => {
             setStages((prev) => prev.filter((s) => s.id !== deleteTarget.id));
-            startTransition(() => deletePipelineStage(deleteTarget.id, remapToLabel));
+            startTransition(() => actions.remove(deleteTarget.id, remapToLabel));
             setDeleteTarget(null);
           }}
         />
@@ -233,11 +255,13 @@ function NewStageRow({
 function RemapDialog({
   stage,
   otherStages,
+  itemNounPlural,
   onCancel,
   onConfirm,
 }: {
   stage: PipelineStage;
   otherStages: PipelineStage[];
+  itemNounPlural: string;
   onCancel: () => void;
   onConfirm: (remapToLabel: string) => void;
 }) {
@@ -246,10 +270,11 @@ function RemapDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="w-96 rounded-lg border border-border bg-background shadow-2xl p-5">
-        <h2 className="text-[15px] font-medium">Move deals before deleting</h2>
+        <h2 className="text-[15px] font-medium">Move {itemNounPlural} before deleting</h2>
         <p className="text-[13px] text-subtle mt-1.5">
-          Deals are still on <span className="font-medium text-foreground">{stage.label}</span>. Choose where to move
-          them before this stage is deleted.
+          {itemNounPlural.charAt(0).toUpperCase() + itemNounPlural.slice(1)} are still on{" "}
+          <span className="font-medium text-foreground">{stage.label}</span>. Choose where to move them before this
+          stage is deleted.
         </p>
 
         {otherStages.length === 0 ? (

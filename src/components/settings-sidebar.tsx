@@ -54,6 +54,7 @@ const SECTIONS = [
       { href: "/settings/general", label: "General", icon: Settings2 },
       { href: "/settings/data-model", label: "Data model", icon: Database },
       { href: "/settings/pipeline", label: "Pipeline", icon: Target },
+      { href: "/settings/contacts-pipeline", label: "Contacts Pipeline", icon: Users2 },
       { href: "/settings/import", label: "Import", icon: Upload },
       { href: "/settings/layout", label: "Layout", icon: LayoutGrid },
       { href: "/settings/members", label: "Members", icon: Users },

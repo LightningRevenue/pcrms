@@ -3,6 +3,7 @@ import { ContactsView } from "@/components/contacts-view";
 import { listNextTasksByPerson } from "@/lib/actions/tasks";
 import { listFieldDefinitions } from "@/lib/actions/custom-fields";
 import { listMembers } from "@/lib/actions/members";
+import { listContactPipelineStages } from "@/lib/actions/contact-pipeline-stages";
 import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 
 export default async function ContactsPage() {
@@ -16,7 +17,7 @@ export default async function ContactsPage() {
   });
   const personIds = people.map((p) => p.id);
 
-  const [lastActivity, nextTasks, customFields, users, openTasks, notes] = await Promise.all([
+  const [lastActivity, nextTasks, customFields, users, openTasks, notes, stages] = await Promise.all([
     db.activity.findMany({
       where: {
         workspaceId,
@@ -39,6 +40,7 @@ export default async function ContactsPage() {
       orderBy: { createdAt: "desc" },
       include: { createdBy: true },
     }),
+    listContactPipelineStages(),
   ]);
   const lastActivityByPerson = new Map(lastActivity.map((a) => [a.entityId, a]));
 
@@ -65,6 +67,7 @@ export default async function ContactsPage() {
       notesByPerson={notesByPerson}
       customFields={customFields}
       users={users}
+      stages={stages}
     />
   );
 }

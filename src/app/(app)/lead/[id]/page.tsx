@@ -4,9 +4,11 @@ import { LeadHeaderBar } from "@/components/lead-header-bar";
 import { ContactDetailPanel } from "@/components/contact-detail-panel";
 import { ContactTabs } from "@/components/contact-tabs";
 import { LeadRelationshipsPanel } from "@/components/lead-relationships-panel";
+import { LeadPipelineStepper } from "@/components/lead-pipeline-stepper";
 import { getCustomFieldValues } from "@/lib/actions/custom-fields";
 import { listOpportunitiesForPerson } from "@/lib/actions/opportunities";
 import { listPipelineStages } from "@/lib/actions/pipeline-stages";
+import { listContactPipelineStages } from "@/lib/actions/contact-pipeline-stages";
 import { listSequenceEnrollmentsWithProgress } from "@/lib/actions/sequences";
 import { isFavorited } from "@/lib/actions/favorites";
 import { listMyMailboxOptions } from "@/lib/actions/mailbox-preferences";
@@ -37,6 +39,7 @@ export default async function LeadDetailPage({
     notes,
     opportunities,
     stages,
+    contactStages,
     sequenceEnrollments,
     favorited,
     mailboxes,
@@ -78,6 +81,7 @@ export default async function LeadDetailPage({
     }),
     listOpportunitiesForPerson(id),
     listPipelineStages(),
+    listContactPipelineStages(),
     listSequenceEnrollmentsWithProgress(id),
     isFavorited("person", id),
     listMyMailboxOptions(),
@@ -108,6 +112,7 @@ export default async function LeadDetailPage({
         total={people.length}
         isFavorited={favorited}
       />
+      <LeadPipelineStepper personId={contact.id} stage={contact.stage} stages={contactStages} />
       <div className="flex flex-1 min-h-0">
         <ContactDetailPanel
           contact={contact}
