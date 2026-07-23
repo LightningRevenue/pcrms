@@ -245,9 +245,10 @@ export async function setOpportunityOwner(id: string, ownerId: string | null) {
   // self-assignment — no point emailing yourself that you just did something.
   if (next?.email && next.id !== userId) {
     await sendOwnershipEmail({
+      entityKind: "deal",
       recipientEmail: next.email,
-      dealId: id,
-      dealName: current.name || "Untitled",
+      entityId: id,
+      entityName: current.name || "Untitled",
       assignedByName: actor?.name ?? actor?.email ?? "Someone",
       workspaceId,
     });

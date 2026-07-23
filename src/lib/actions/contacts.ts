@@ -7,6 +7,7 @@ import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
 import { PERSON_FIELD_LABELS } from "@/lib/field-labels";
 import { assertLimit } from "@/lib/entitlements";
 import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
+import { sendOwnershipEmail } from "@/lib/ownership-notification";
 
 export type CreateContactInput = {
   firstName: string;
@@ -136,7 +137,10 @@ export async function searchPeople(query: string) {
 export async function setPersonOwner(personId: string, ownerId: string | null) {
   const { userId, workspaceId } = await requireWorkspace();
 
-  const current = await db.person.findUniqueOrThrow({ where: { id: personId, workspaceId }, include: { owner: true } });
+  const [current, actor] = await Promise.all([
+    db.person.findUniqueOrThrow({ where: { id: personId, workspaceId }, include: { owner: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+  ]);
   const oldValue = current.owner?.name ?? current.owner?.email ?? "";
 
   const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
@@ -157,13 +161,28 @@ export async function setPersonOwner(personId: string, ownerId: string | null) {
     },
   });
 
+  if (next?.email && next.id !== userId) {
+    await sendOwnershipEmail({
+      entityKind: "contact",
+      recipientEmail: next.email,
+      entityId: personId,
+      entityName: [current.firstName, current.lastName].filter(Boolean).join(" ") || "Untitled",
+      assignedByName: actor?.name ?? actor?.email ?? "Someone",
+      workspaceId,
+    });
+  }
+
   revalidatePath(`/contacts/${personId}`);
+  revalidatePath(`/lead/${personId}`);
 }
 
 export async function setPersonOwners(personIds: string[], ownerId: string | null) {
   const { userId, workspaceId } = await requireWorkspace();
 
-  const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
+  const [next, actor] = await Promise.all([
+    ownerId ? db.user.findUniqueOrThrow({ where: { id: ownerId } }) : Promise.resolve(null),
+    db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+  ]);
   const newValue = next?.name ?? next?.email ?? "";
 
   const current = await db.person.findMany({ where: { workspaceId, id: { in: personIds } }, include: { owner: true } });
@@ -184,6 +203,17 @@ export async function setPersonOwners(personIds: string[], ownerId: string | nul
         actorId: userId,
       },
     });
+
+    if (next?.email && next.id !== userId) {
+      await sendOwnershipEmail({
+        entityKind: "contact",
+        recipientEmail: next.email,
+        entityId: person.id,
+        entityName: [person.firstName, person.lastName].filter(Boolean).join(" ") || "Untitled",
+        assignedByName: actor?.name ?? actor?.email ?? "Someone",
+        workspaceId,
+      });
+    }
   }
 
   revalidatePath("/contacts");
