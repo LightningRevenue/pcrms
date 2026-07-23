@@ -57,10 +57,7 @@ export function LeadRelationshipsPanel({
       <MainCompany personId={personId} company={primaryCompany} />
       <RelatedCompanies personId={personId} primaryCompanyId={primaryCompany?.id ?? null} links={companyLinks} />
       <RelatedOpportunities personId={personId} links={opportunityLinks} />
-      <div>
-        <p className="text-[13px] font-medium px-1 mb-1.5">Lists</p>
-        <EntityListsSection entityType="person" entityId={personId} lists={lists} />
-      </div>
+      <EntityListsSection entityType="person" entityId={personId} lists={lists} />
       <SequenceEnrollments personId={personId} enrollments={sequenceEnrollments} />
     </aside>
   );
