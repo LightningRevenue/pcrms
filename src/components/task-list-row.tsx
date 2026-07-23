@@ -6,6 +6,7 @@ import type { Opportunity, Person, Task, TaskOpportunity } from "@prisma/client"
 import { Phone, Mail, CalendarClock, Users, CheckSquare, User as UserIcon, ChevronDown } from "lucide-react";
 import { AssociatedDeals } from "@/components/associated-deals";
 import type { TaskType, TaskPriority } from "@/components/create-task-panel";
+import { useContactHref } from "@/lib/view-mode";
 
 const TYPE_LABEL: Record<TaskType, string> = {
   call: "Call",
@@ -55,6 +56,7 @@ export function TaskListRow({
   context?: "contact" | "opportunity";
 }) {
   const [expanded, setExpanded] = useState(false);
+  const contactHref = useContactHref();
   const Icon = TYPE_ICON[task.type as TaskType];
   const deals = task.opportunities.map((o) => o.opportunity);
 
@@ -88,7 +90,7 @@ export function TaskListRow({
         </p>
         {context === "opportunity" && task.person ? (
           <Link
-            href={`/contacts/${task.person.id}`}
+            href={contactHref(task.person.id)}
             onClick={(e) => e.stopPropagation()}
             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-[11px] text-subtle hover:text-foreground hover:bg-muted/70 transition-colors"
             title={`Go to ${[task.person.firstName, task.person.lastName].filter(Boolean).join(" ")}`}

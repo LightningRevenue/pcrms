@@ -9,6 +9,7 @@ import {
   type CampaignSummary,
   type CampaignMemberRow,
 } from "@/lib/actions/campaign-performance-stats";
+import { useContactHref } from "@/lib/view-mode";
 
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-muted text-subtle",
@@ -110,6 +111,7 @@ function CampaignMembersPanel({
   onClose: () => void;
 }) {
   const [rows, setRows] = useState<CampaignMemberRow[] | null>(null);
+  const contactHref = useContactHref();
 
   useEffect(() => {
     getCampaignMembers(campaign.id, filter).then(setRows);
@@ -139,7 +141,7 @@ function CampaignMembersPanel({
               {rows.map((r) => (
                 <Link
                   key={r.id}
-                  href={`/contacts/${r.personId}`}
+                  href={contactHref(r.personId)}
                   className="flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors group"
                 >
                   <span className="text-[13px] truncate">{r.personName}</span>

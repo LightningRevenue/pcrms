@@ -9,6 +9,7 @@ import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
 import { setOpportunityOwner } from "@/lib/actions/opportunities";
 import type { OpportunityRow, OpportunityStage } from "@/components/opportunities-view";
+import { useContactHref } from "@/lib/view-mode";
 
 type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
@@ -55,6 +56,7 @@ export function OpportunityDetailPanel({
   const contact = contactName(opportunity.contact);
   const createdBy = opportunity.createdBy?.name ?? opportunity.createdBy?.email ?? "—";
   const createdAt = relativeTime(opportunity.createdAt);
+  const contactHref = useContactHref();
 
   function changeOwner(ownerId: string | null) {
     setOpportunityOwner(opportunity.id, ownerId);
@@ -125,7 +127,7 @@ export function OpportunityDetailPanel({
         {opportunity.contact && (
           <RelatedSection title="Point of Contact">
             <Link
-              href={`/contacts/${opportunity.contact.id}`}
+              href={contactHref(opportunity.contact.id)}
               className="flex items-center gap-2 text-[13px] group hover:bg-muted rounded-md px-1 py-1 -mx-1 transition-colors"
             >
               <Avatar name={contact} />

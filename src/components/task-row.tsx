@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Person, Task } from "@prisma/client";
 import { toggleTask, updateTask } from "@/lib/actions/tasks";
 import { CreateTaskPanel, type NewTaskDraft, type TaskType, type TaskPriority } from "@/components/create-task-panel";
+import { useContactHref } from "@/lib/view-mode";
 
 function formatTime(date: Date) {
   const now = new Date();
@@ -27,6 +28,7 @@ export function TaskRow({ task }: { task: Task & { person: Person } }) {
   const [done, setDone] = useState(task.done);
   const [editing, setEditing] = useState(false);
   const [, startTransition] = useTransition();
+  const contactHref = useContactHref();
   const personName = [task.person.firstName, task.person.lastName].filter(Boolean).join(" ");
 
   function handleToggle(e: React.MouseEvent) {
@@ -70,7 +72,7 @@ export function TaskRow({ task }: { task: Task & { person: Person } }) {
         <div className="flex-1 min-w-0">
           <p className={`text-[13px] ${done ? "line-through text-subtle" : ""}`}>{task.title}</p>
           <Link
-            href={`/contacts/${task.personId}`}
+            href={contactHref(task.personId)}
             onClick={(e) => e.stopPropagation()}
             className="text-[12px] text-subtle mt-0.5 hover:underline"
           >

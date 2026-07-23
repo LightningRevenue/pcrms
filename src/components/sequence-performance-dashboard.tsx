@@ -11,6 +11,7 @@ import {
   type StepPerformance,
   type EnrollmentDrillDownRow,
 } from "@/lib/actions/sequence-performance-stats";
+import { useContactHref } from "@/lib/view-mode";
 
 function formatDate(date: Date) {
   return new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -83,6 +84,7 @@ function SequenceDetailPanel({ sequence, onClose }: { sequence: SequenceSummary;
   const [steps, setSteps] = useState<StepPerformance[] | null>(null);
   const [enrollmentFilter, setEnrollmentFilter] = useState<"active" | "completed" | "cancelled" | null>(null);
   const [enrollments, setEnrollments] = useState<EnrollmentDrillDownRow[] | null>(null);
+  const contactHref = useContactHref();
 
   useEffect(() => {
     getSequenceStepPerformance(sequence.id).then(setSteps);
@@ -144,7 +146,7 @@ function SequenceDetailPanel({ sequence, onClose }: { sequence: SequenceSummary;
                 {enrollments.map((e) => (
                   <Link
                     key={e.id}
-                    href={`/contacts/${e.personId}`}
+                    href={contactHref(e.personId)}
                     className="flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors group"
                   >
                     <span className="text-[13px] truncate">{e.personName}</span>

@@ -9,6 +9,7 @@ import type { InboxThread } from "@/lib/actions/inbox";
 import { syncInboxNow } from "@/lib/actions/inbox";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { NewEmailComposer } from "@/components/new-email-composer";
+import { useContactHref } from "@/lib/view-mode";
 
 type MailboxOption = { id: string; label: string; email: string };
 type Tab = "received" | "crm" | "sent";
@@ -77,6 +78,7 @@ export function UnifiedInboxView({
   allMailboxes: MailboxOption[];
 }) {
   const router = useRouter();
+  const contactHref = useContactHref();
   const [tab, setTab] = useState<Tab>("received");
   const [query, setQuery] = useState("");
   const [mailboxFilter, setMailboxFilter] = useState<Set<string>>(new Set());
@@ -371,7 +373,7 @@ export function UnifiedInboxView({
                   {lastMessage.person && (
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Link
-                        href={`/contacts/${lastMessage.person.id}`}
+                        href={contactHref(lastMessage.person.id)}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[12.5px] text-subtle hover:text-foreground hover:bg-muted transition-colors"
                       >
                         <UserIcon size={13} strokeWidth={1.75} />

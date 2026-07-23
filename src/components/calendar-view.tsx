@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, X, Mail, Phone, Building2, ArrowRight, Plus 
 import type { Task, Person, Company } from "@prisma/client";
 import { createTask, rescheduleTask, type TaskType } from "@/lib/actions/tasks";
 import { ContactPicker } from "@/components/contact-picker";
+import { useContactHref } from "@/lib/view-mode";
 
 type TaskWithPerson = Task & { person: Person & { company: Company | null } };
 
@@ -419,6 +420,7 @@ function DayView({
 function TaskModal({ task, onClose }: { task: TaskWithPerson; onClose: () => void }) {
   const person = task.person;
   const name = personName(person);
+  const contactHref = useContactHref();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -482,7 +484,7 @@ function TaskModal({ task, onClose }: { task: TaskWithPerson; onClose: () => voi
         </div>
 
         <Link
-          href={`/contacts/${person.id}`}
+          href={contactHref(person.id)}
           className="mt-4 flex items-center justify-center gap-1.5 w-full px-2.5 py-1.5 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity"
         >
           Go to contact

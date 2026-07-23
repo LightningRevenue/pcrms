@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import type { Note, NoteOpportunity, Opportunity, Person, User } from "@prisma/client";
 import { StickyNote, User as UserIcon } from "lucide-react";
 import { AssociatedDeals } from "@/components/associated-deals";
+import { useContactHref } from "@/lib/view-mode";
 
 function relativeTime(date: Date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -21,6 +24,7 @@ type CompanyNote = Note & {
 };
 
 export function CompanyNotesTab({ notes }: { notes: CompanyNote[] }) {
+  const contactHref = useContactHref();
   if (notes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-subtle">
@@ -47,7 +51,7 @@ export function CompanyNotesTab({ notes }: { notes: CompanyNote[] }) {
                   {note.createdBy?.name ?? note.createdBy?.email ?? "Someone"} · {relativeTime(note.createdAt)}
                 </span>
                 <Link
-                  href={`/contacts/${note.person.id}`}
+                  href={contactHref(note.person.id)}
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-[11px] text-subtle hover:text-foreground hover:bg-muted/70 transition-colors"
                   title={`Go to ${personName}`}
                 >

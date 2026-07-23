@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/sequences";
 import { SequenceStepForm } from "@/components/sequence-step-form";
 import { EnrollContactPanel } from "@/components/enroll-contact-panel";
+import { useContactHref } from "@/lib/view-mode";
 
 type SequenceWithDetails = Sequence & {
   steps: (SequenceStep & { template: EmailTemplate | null })[];
@@ -64,6 +65,7 @@ export function SequenceDetailView({
   const [enrolling, setEnrolling] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const contactHref = useContactHref();
 
   function handleAddStep(input: SequenceStepInput) {
     setStepError(null);
@@ -188,7 +190,7 @@ export function SequenceDetailView({
               const name = [e.person.firstName, e.person.lastName].filter(Boolean).join(" ");
               return (
                 <div key={e.id} className="flex items-center gap-2 rounded-md px-1 py-1.5 group">
-                  <Link href={`/contacts/${e.person.id}`} className="flex-1 min-w-0 text-[13px] truncate hover:underline">
+                  <Link href={contactHref(e.person.id)} className="flex-1 min-w-0 text-[13px] truncate hover:underline">
                     {name}
                   </Link>
                   <span

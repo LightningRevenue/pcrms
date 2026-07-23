@@ -13,6 +13,7 @@ import { CompanyLogo } from "@/components/company-logo";
 import { EntityListsSection } from "@/components/entity-lists-section";
 import { updateCompanyField, unlinkPersonFromCompany, type CompanyField } from "@/lib/actions/companies";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
+import { useContactHref } from "@/lib/view-mode";
 
 type CompanyWithRelations = Company & { createdBy: User | null; importBatch: ImportBatch | null };
 
@@ -42,6 +43,7 @@ export function CompanyDetailPanel({
 }) {
   const [name, setName] = useState(company.name);
   const [, startTransition] = useTransition();
+  const contactHref = useContactHref();
   const createdAt = relativeTime(company.createdAt);
   const createdBy = company.importBatch?.name ?? company.createdBy?.name ?? company.createdBy?.email ?? "—";
 
@@ -99,7 +101,7 @@ export function CompanyDetailPanel({
               {people.map((p) => (
                 <div key={p.id} className="flex items-center rounded-md hover:bg-muted transition-colors group">
                   <Link
-                    href={`/contacts/${p.id}`}
+                    href={contactHref(p.id)}
                     className="flex-1 min-w-0 flex items-center gap-1.5 px-1 py-1 text-[13px]"
                   >
                     <span className="truncate">{[p.firstName, p.lastName].filter(Boolean).join(" ")}</span>

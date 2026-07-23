@@ -1,8 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import type { Opportunity, Person, Task, TaskOpportunity } from "@prisma/client";
 import { Phone, Mail, CalendarClock, Users, CheckSquare, User as UserIcon } from "lucide-react";
 import { AssociatedDeals } from "@/components/associated-deals";
 import type { TaskType, TaskPriority } from "@/components/create-task-panel";
+import { useContactHref } from "@/lib/view-mode";
 
 const TYPE_ICON: Record<TaskType, typeof Phone> = {
   call: Phone,
@@ -26,6 +29,7 @@ function formatDue(dueAt: Date | null) {
 type CompanyTask = Task & { person: Person; opportunities: (TaskOpportunity & { opportunity: Opportunity })[] };
 
 export function CompanyTasksTab({ tasks }: { tasks: CompanyTask[] }) {
+  const contactHref = useContactHref();
   if (tasks.length === 0) {
     return <p className="text-[13px] text-subtle">No tasks on this company&apos;s contacts yet.</p>;
   }
@@ -59,7 +63,7 @@ export function CompanyTasksTab({ tasks }: { tasks: CompanyTask[] }) {
                 {task.title}
               </p>
               <Link
-                href={`/contacts/${task.person.id}`}
+                href={contactHref(task.person.id)}
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-[11px] text-subtle hover:text-foreground hover:bg-muted/70 transition-colors shrink-0"
                 title={`Go to ${personName}`}
               >

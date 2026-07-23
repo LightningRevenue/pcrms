@@ -8,6 +8,7 @@ import DOMPurify from "isomorphic-dompurify";
 import { EmailComposer, type ComposerDraft, type MailboxOption } from "@/components/email-composer";
 import { AssociatedDeals } from "@/components/associated-deals";
 import { syncContactEmails } from "@/lib/actions/emails";
+import { useContactHref } from "@/lib/view-mode";
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(
@@ -49,6 +50,7 @@ export function EmailThreadList({
   const [isSyncing, startSync] = useTransition();
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId ?? null);
+  const contactHref = useContactHref();
 
   function handleSync() {
     setSyncMessage(null);
@@ -170,7 +172,7 @@ export function EmailThreadList({
                       {context === "opportunity" ? (
                         <div className="mt-1.5">
                           <Link
-                            href={`/contacts/${personId}`}
+                            href={contactHref(personId)}
                             onClick={(e) => e.stopPropagation()}
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-[11px] text-subtle hover:text-foreground hover:bg-muted/70 transition-colors"
                             title={`Go to ${personName ?? "contact"}`}

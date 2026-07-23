@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { OpportunityRow } from "@/components/opportunities-view";
 import { ArrowUpRight, DollarSign, Target, Building2, User as UserIcon, CalendarDays } from "lucide-react";
+import { useContactHref } from "@/lib/view-mode";
 
 const OUTCOME_BADGE: Record<string, string> = {
   open: "bg-blue-500 text-white",
@@ -28,6 +29,7 @@ function formatCloseDate(date: Date | null) {
 const GRID = "220px 100px 120px 160px 160px 180px 160px";
 
 export function ListDealsView({ opportunities }: { opportunities: OpportunityRow[] }) {
+  const contactHref = useContactHref();
   return (
     <div className="min-w-max">
       <div
@@ -90,7 +92,7 @@ export function ListDealsView({ opportunities }: { opportunities: OpportunityRow
               <span className="text-[13px] truncate pl-1 pr-2">
                 {o.contact ? (
                   <Link
-                    href={`/contacts/${o.contact.id}`}
+                    href={contactHref(o.contact.id)}
                     className="inline-block px-2 py-0.5 rounded-md border border-border bg-muted text-foreground truncate max-w-full hover:bg-accent hover:text-white hover:border-accent transition-colors"
                   >
                     {contactName(o.contact) || "Untitled"}

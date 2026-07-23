@@ -19,6 +19,7 @@ import {
 import { moveOpportunityStage } from "@/lib/actions/opportunities";
 import { CreateDealPanel } from "@/components/create-deal-panel";
 import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
+import { useContactHref } from "@/lib/view-mode";
 
 export type OpportunityStage = string;
 
@@ -189,6 +190,7 @@ function KanbanBoard({
   onAdd: (stage: string) => void;
 }) {
   const [dragOver, setDragOver] = useState<OpportunityStage | null>(null);
+  const contactHref = useContactHref();
 
   return (
     <div className="flex gap-4 items-start">
@@ -267,7 +269,7 @@ function KanbanBoard({
                         )}
                         {o.contact && (
                           <Link
-                            href={`/contacts/${o.contact.id}`}
+                            href={contactHref(o.contact.id)}
                             onClick={(e) => e.stopPropagation()}
                             draggable={false}
                             className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] text-subtle hover:bg-muted hover:text-foreground transition-colors truncate"

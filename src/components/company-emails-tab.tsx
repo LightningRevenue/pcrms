@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import type { Email, EmailOpen, EmailOpportunity, Opportunity, Person } from "@prisma/client";
 import { Eye, User as UserIcon } from "lucide-react";
 import { AssociatedDeals } from "@/components/associated-deals";
+import { useContactHref } from "@/lib/view-mode";
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(
@@ -17,6 +20,8 @@ type CompanyEmail = Email & {
 };
 
 export function CompanyEmailsTab({ emails }: { emails: CompanyEmail[] }) {
+  const contactHref = useContactHref();
+
   if (emails.length === 0) {
     return <p className="text-[13px] text-subtle">No emails on this company&apos;s contacts yet.</p>;
   }
@@ -59,7 +64,7 @@ export function CompanyEmailsTab({ emails }: { emails: CompanyEmail[] }) {
               )}
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 <Link
-                  href={`/contacts/${email.person.id}`}
+                  href={contactHref(email.person.id)}
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-[11px] text-subtle hover:text-foreground hover:bg-muted/70 transition-colors"
                   title={`Go to ${personName}`}
                 >
