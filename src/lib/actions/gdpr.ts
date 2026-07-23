@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireWorkspaceOwner } from "@/lib/workspace";
+import { requireWorkspace, requireWorkspaceOwner } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { isGdprModuleEnabled } from "@/lib/gdpr";
+import { getSetting, setSetting, SETTING_KEYS } from "@/lib/workspace-settings";
 
 async function requireGdprAccess() {
   const ctx = await requireWorkspaceOwner();
@@ -96,5 +97,39 @@ export async function setPersonUnsubscribed(personId: string, unsubscribed: bool
     where: { id: personId, workspaceId },
     data: { unsubscribedAt: unsubscribed ? new Date() : null },
   });
+  revalidatePath("/settings/gdpr");
+}
+
+// Unlike setPersonUnsubscribed above (owner-only, used from Settings > GDPR), this is the
+// button any workspace member sees on /contacts/[id], /deals/[id], /lead/[id]. Unsubscribing
+// is a one-way door for non-owners: anyone can flag a contact as unsubscribed, but only the
+// owner can undo it — the checkbox in the UI reflects this by locking once checked unless
+// you're the owner.
+export async function toggleContactUnsubscribe(personId: string, unsubscribed: boolean) {
+  const ctx = await requireWorkspace();
+  if (!(await isGdprModuleEnabled(ctx.workspaceId))) throw new Error("GDPR module is not enabled on your plan");
+  if (!unsubscribed && ctx.role !== "owner") throw new Error("Only the workspace owner can resubscribe a contact");
+
+  await db.person.update({
+    where: { id: personId, workspaceId: ctx.workspaceId },
+    data: { unsubscribedAt: unsubscribed ? new Date() : null },
+  });
+
+  revalidatePath(`/contacts/${personId}`);
+  revalidatePath(`/lead/${personId}`);
+  revalidatePath("/settings/gdpr");
+}
+
+export async function getUnsubscribeFooterText() {
+  const { workspaceId } = await requireGdprAccess();
+  return getSetting(SETTING_KEYS.unsubscribeFooterText, workspaceId);
+}
+
+// Custom text (HTML) shown in the unsubscribe footer of every outbound email — lets the
+// owner reword it or translate it. Include {{unsubscribe_link}} anywhere the actual link
+// should go; if omitted, the whole text becomes the link's clickable label.
+export async function setUnsubscribeFooterText(text: string) {
+  const { workspaceId } = await requireGdprAccess();
+  await setSetting(SETTING_KEYS.unsubscribeFooterText, text.trim(), workspaceId);
   revalidatePath("/settings/gdpr");
 }

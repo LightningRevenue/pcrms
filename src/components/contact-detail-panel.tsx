@@ -14,6 +14,7 @@ import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactPlaybooksPanel } from "@/components/contact-playbooks-panel";
 import { LeadQuickActions } from "@/components/lead-quick-actions";
+import { UnsubscribeToggle } from "@/components/unsubscribe-toggle";
 import { updatePersonField, setPersonCompany, setPersonOwner, type PersonField } from "@/lib/actions/contacts";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
 import type { MailboxOption } from "@/components/email-composer";
@@ -106,6 +107,7 @@ export function ContactDetailPanel({
             companyName={contact.company?.name ?? null}
             personEmail={contact.email}
             personPhone={contact.phone}
+            unsubscribed={!!contact.unsubscribedAt}
             stages={quickActions.stages}
             opportunities={opportunities}
             mailboxes={quickActions.mailboxes}
@@ -155,6 +157,7 @@ export function ContactDetailPanel({
               onChange={(ownerId) => setPersonOwner(contact.id, ownerId)}
             />
           </div>
+          <UnsubscribeToggle personId={contact.id} unsubscribedAt={contact.unsubscribedAt} />
         </FieldSection>
 
         <FieldSection title="System">

@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useSession } from "next-auth/react";
-import { Minus, X, ChevronDown, Send, Search } from "lucide-react";
+import { Minus, X, ChevronDown, Send, Search, UserX } from "lucide-react";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { searchContactsForCompose } from "@/lib/actions/inbox";
 import { sendViaSmtp } from "@/lib/actions/mailbox-accounts";
 import { sendEmail, listTemplates } from "@/lib/actions/emails";
 
-type Contact = { id: string; name: string; email: string };
+type Contact = { id: string; name: string; email: string; unsubscribed?: boolean };
 type MailboxOption = { id: string; label: string; email: string };
 type Template = { id: string; name: string; subject: string; bodyHtml: string };
 
@@ -85,10 +85,16 @@ export function NewEmailComposer({
     setRecipients((prev) => prev.filter((r) => r.id !== id));
   }
 
+  const unsubscribedRecipients = recipients.filter((r) => r.unsubscribed);
+
   function handleSend() {
     setError(null);
     if (recipients.length === 0) {
       setError("Add at least one recipient");
+      return;
+    }
+    if (unsubscribedRecipients.length > 0) {
+      setError("Remove unsubscribed contacts before sending — they can no longer be emailed.");
       return;
     }
     if (!subject.trim()) {
@@ -214,8 +220,12 @@ export function NewEmailComposer({
                   {recipients.map((r) => (
                     <span
                       key={r.id}
-                      className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-muted text-[12.5px]"
+                      title={r.unsubscribed ? "This contact has unsubscribed and can't be emailed" : undefined}
+                      className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[12.5px] ${
+                        r.unsubscribed ? "bg-red-500/10 text-red-400" : "bg-muted"
+                      }`}
                     >
+                      {r.unsubscribed && <UserX size={11} strokeWidth={1.75} />}
                       {r.name || r.email}
                       <button
                         onClick={() => removeRecipient(r.id)}
@@ -250,7 +260,15 @@ export function NewEmailComposer({
                       onClick={() => addRecipient(c)}
                       className="w-full text-left px-3 py-2 text-[13px] hover:bg-muted transition-colors"
                     >
-                      <div className="font-medium">{c.name || "Unnamed"}</div>
+                      <div className="font-medium flex items-center gap-1.5">
+                        {c.name || "Unnamed"}
+                        {c.unsubscribed && (
+                          <span className="flex items-center gap-1 text-[11px] text-red-400 font-normal">
+                            <UserX size={11} strokeWidth={1.75} />
+                            Unsubscribed
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[12px] text-subtle">{c.email}</div>
                     </button>
                   ))

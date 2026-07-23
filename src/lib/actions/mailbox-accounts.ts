@@ -260,7 +260,7 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     interpolateForPerson(input.bodyHtml, input.personId, input.workspaceId),
     buildUnsubscribeUrl(input.personId),
   ]);
-  const bodyHtml = appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl) + (input.trackingPixelHtml ?? "");
+  const bodyHtml = (await appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl, input.workspaceId)) + (input.trackingPixelHtml ?? "");
 
   const bcc = input.bcc ?? [];
 

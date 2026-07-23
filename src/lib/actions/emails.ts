@@ -51,7 +51,7 @@ export async function sendEmail(input: SendEmailInput) {
     interpolateForPerson(input.bodyHtml, input.personId, workspaceId),
     buildUnsubscribeUrl(input.personId),
   ]);
-  const bodyHtml = appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl);
+  const bodyHtml = await appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl, workspaceId);
 
   const emailId = crypto.randomUUID();
   const trackingBaseUrl = await getTrackingBaseUrl();

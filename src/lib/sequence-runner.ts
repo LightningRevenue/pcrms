@@ -91,7 +91,7 @@ async function executeStepRun(
       interpolateForPerson(rawBody, personId, workspaceId),
       buildUnsubscribeUrl(personId),
     ]);
-    const bodyHtml = appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl);
+    const bodyHtml = await appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl, workspaceId);
 
     const emailId = crypto.randomUUID();
     const trackingBaseUrl = await getTrackingBaseUrlForWorker();

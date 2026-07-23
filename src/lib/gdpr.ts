@@ -15,7 +15,7 @@ export async function isGdprModuleEnabled(workspaceId: string): Promise<boolean>
 
 export class UnsubscribedError extends Error {
   constructor() {
-    super("This contact has unsubscribed and can no longer be emailed.");
+    super("This contact has unsubscribed. If further communication is relevant, contact the workspace owner for a resubscribe.");
     this.name = "UnsubscribedError";
   }
 }

@@ -7,6 +7,7 @@ import { FieldSection } from "@/components/field-section";
 import { FieldRow } from "@/components/field-row";
 import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
+import { UnsubscribeToggle } from "@/components/unsubscribe-toggle";
 import { setOpportunityOwner } from "@/lib/actions/opportunities";
 import type { OpportunityRow, OpportunityStage } from "@/components/opportunities-view";
 import { useContactHref } from "@/lib/view-mode";
@@ -115,6 +116,9 @@ export function OpportunityDetailPanel({
             </div>
             <OwnerSelect users={users} ownerId={opportunity.ownerId} onChange={changeOwner} />
           </div>
+          {opportunity.contact && (
+            <UnsubscribeToggle personId={opportunity.contact.id} unsubscribedAt={opportunity.contact.unsubscribedAt} />
+          )}
         </FieldSection>
 
         <FieldSection title="System">

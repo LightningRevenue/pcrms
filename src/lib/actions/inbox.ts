@@ -81,11 +81,12 @@ export async function searchContactsForCompose(query: string) {
     },
     orderBy: { firstName: "asc" },
     take: 8,
-    select: { id: true, firstName: true, lastName: true, email: true },
+    select: { id: true, firstName: true, lastName: true, email: true, unsubscribedAt: true },
   });
   return people.map((p) => ({
     id: p.id,
     name: [p.firstName, p.lastName].filter(Boolean).join(" "),
     email: p.email as string,
+    unsubscribed: !!p.unsubscribedAt,
   }));
 }

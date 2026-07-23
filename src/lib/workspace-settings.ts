@@ -7,6 +7,10 @@ export const SETTING_KEYS = {
   // Value is either "gmail" or a MailboxAccount id — the inbox internal CRM notifications
   // (assigned to a teammate, etc.) send from. Workspace-wide, not per-user.
   notificationInbox: "notification_inbox",
+  // Custom unsubscribe footer text (HTML), overriding the default "Unsubscribe from future
+  // emails." link text — lets a workspace localize it or add extra wording. Set from
+  // Settings > GDPR. Falls back to the default in unsubscribe-footer.ts when unset.
+  unsubscribeFooterText: "unsubscribe_footer_text",
 } as const;
 
 // workspaceId is omitted for the genuinely global keys (app_base_url, tracking_domain);

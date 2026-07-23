@@ -27,6 +27,7 @@ export function OpportunityTabs({
   opportunityId,
   personId,
   personEmail,
+  unsubscribed = false,
   contactName,
   tasks,
   emails,
@@ -38,6 +39,7 @@ export function OpportunityTabs({
   opportunityId: string;
   personId: string | null;
   personEmail: string | null;
+  unsubscribed?: boolean;
   contactName: string;
   tasks: TaskWithDeals[];
   emails: (Email & {
@@ -94,6 +96,7 @@ export function OpportunityTabs({
               personId={personId}
               personName={contactName}
               personEmail={personEmail}
+              unsubscribed={unsubscribed}
               emails={emails.filter((e) => e.opportunities.some((o) => o.opportunityId === opportunityId))}
               mailboxes={mailboxes}
               context="opportunity"

@@ -84,6 +84,7 @@ export default async function ContactDetailPage({
         companyName={contact.company?.name ?? null}
         personEmail={contact.email}
         personPhone={contact.phone}
+        unsubscribed={!!contact.unsubscribedAt}
         stages={stages}
         opportunities={openOpportunities}
         isFavorited={favorited}
@@ -105,6 +106,7 @@ export default async function ContactDetailPage({
             personId={contact.id}
             personName={name}
             personEmail={contact.email}
+            unsubscribed={!!contact.unsubscribedAt}
             emails={emails}
             tasks={tasks}
             notes={notes}

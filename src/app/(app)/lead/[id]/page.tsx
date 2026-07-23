@@ -130,6 +130,7 @@ export default async function LeadDetailPage({
             personId={contact.id}
             personName={name}
             personEmail={contact.email}
+            unsubscribed={!!contact.unsubscribedAt}
             emails={emails}
             tasks={tasks}
             notes={notes}

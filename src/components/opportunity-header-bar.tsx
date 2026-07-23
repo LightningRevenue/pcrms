@@ -45,6 +45,7 @@ export function OpportunityHeaderBar({
       to: contact.email ? [contact.email] : [],
       opportunityIds: [opportunityId],
       contactFirstName: contact.firstName,
+      unsubscribed: !!contact.unsubscribedAt,
     });
   }
 

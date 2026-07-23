@@ -39,6 +39,7 @@ export function ContactTabs({
   personId,
   personName,
   personEmail,
+  unsubscribed = false,
   emails,
   tasks,
   notes,
@@ -51,6 +52,7 @@ export function ContactTabs({
   personId: string;
   personName: string;
   personEmail: string | null;
+  unsubscribed?: boolean;
   emails: (Email & {
     opens: EmailOpen[];
     opportunities: (EmailOpportunity & { opportunity: Opportunity })[];
@@ -101,6 +103,7 @@ export function ContactTabs({
             personId={personId}
             personName={personName}
             personEmail={personEmail}
+            unsubscribed={unsubscribed}
             emails={emails}
             initialExpandedId={initialEmailId}
             opportunities={opportunities}

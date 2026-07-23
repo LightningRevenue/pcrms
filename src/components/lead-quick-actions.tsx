@@ -23,6 +23,7 @@ export function LeadQuickActions({
   companyName,
   personEmail,
   personPhone,
+  unsubscribed = false,
   stages,
   opportunities,
   mailboxes,
@@ -33,6 +34,7 @@ export function LeadQuickActions({
   companyName: string | null;
   personEmail: string | null;
   personPhone: string | null;
+  unsubscribed?: boolean;
   stages: PipelineStage[];
   opportunities?: Opportunity[];
   mailboxes: MailboxOption[];
@@ -63,7 +65,7 @@ export function LeadQuickActions({
   }
 
   function openCompose() {
-    setDraft({ personId: contactId, to: personEmail ? [personEmail] : [], contactFirstName: name.split(" ")[0] });
+    setDraft({ personId: contactId, to: personEmail ? [personEmail] : [], contactFirstName: name.split(" ")[0], unsubscribed });
   }
 
   function handleCreateTask(task: NewTaskDraft) {

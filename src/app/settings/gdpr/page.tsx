@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { SettingsHeader } from "@/components/settings-header";
 import { RestrictedSettingsPage } from "@/components/restricted-settings-page";
 import { GdprManager } from "@/components/gdpr-manager";
-import { listGdprRequests, listUnsubscribedContacts } from "@/lib/actions/gdpr";
+import { listGdprRequests, listUnsubscribedContacts, getUnsubscribeFooterText } from "@/lib/actions/gdpr";
 import { isGdprModuleEnabled } from "@/lib/gdpr";
 
 export default async function GdprPage() {
@@ -19,7 +19,11 @@ export default async function GdprPage() {
     );
   }
 
-  const [requests, unsubscribed] = await Promise.all([listGdprRequests(), listUnsubscribedContacts()]);
+  const [requests, unsubscribed, footerText] = await Promise.all([
+    listGdprRequests(),
+    listUnsubscribedContacts(),
+    getUnsubscribeFooterText(),
+  ]);
 
   return (
     <>
@@ -32,7 +36,7 @@ export default async function GdprPage() {
           sends.
         </p>
 
-        <GdprManager requests={requests} unsubscribed={unsubscribed} />
+        <GdprManager requests={requests} unsubscribed={unsubscribed} footerText={footerText} />
       </div>
     </>
   );

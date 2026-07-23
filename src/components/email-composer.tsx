@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useSession } from "next-auth/react";
 import type { Opportunity } from "@prisma/client";
-import { Minus, X, ChevronDown, Paperclip, Send } from "lucide-react";
+import { Minus, X, ChevronDown, Paperclip, Send, UserX } from "lucide-react";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { OpportunityMultiSelect } from "@/components/opportunity-multi-select";
 import { sendEmail, listTemplates } from "@/lib/actions/emails";
@@ -24,6 +24,10 @@ export type ComposerDraft = {
   mailboxAccountId?: string;
   // Used for the "Follow-up with {name}" task title when scheduling a follow-up on send.
   contactFirstName?: string;
+  // Person.unsubscribedAt !== null — when set, the composer shows a blocking notice instead
+  // of the compose form (server-side assertNotUnsubscribed would reject the send anyway;
+  // this just surfaces it upfront instead of after a failed Send click).
+  unsubscribed?: boolean;
 };
 
 const DEFAULT_FOLLOW_UP_DAYS = 3;
@@ -154,7 +158,7 @@ export function EmailComposer({
         onClick={() => setMinimized((m) => !m)}
       >
         <span className="text-[13px] font-medium truncate">
-          {subject.trim() ? subject : "New message"}
+          {draft.unsubscribed ? "Contact unsubscribed" : subject.trim() ? subject : "New message"}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -178,7 +182,20 @@ export function EmailComposer({
         </div>
       </div>
 
-      {!minimized && (
+      {!minimized && draft.unsubscribed && (
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+          <div className="size-10 rounded-full bg-muted flex items-center justify-center">
+            <UserX size={18} strokeWidth={1.75} className="text-subtle" />
+          </div>
+          <h2 className="text-[14px] font-medium mt-3">This contact has unsubscribed</h2>
+          <p className="text-[12.5px] text-subtle mt-1.5 max-w-xs">
+            They can no longer be emailed. If further communication is relevant, contact the workspace owner to
+            resubscribe them.
+          </p>
+        </div>
+      )}
+
+      {!minimized && !draft.unsubscribed && (
         <div className="flex-1 min-h-0 flex flex-col">
           {mailboxes.length > 0 && (
             <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 relative">

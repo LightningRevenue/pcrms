@@ -1,15 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, X, Trash2, UserX, UserCheck } from "lucide-react";
+import { Plus, X, Trash2, UserX, UserCheck, Save } from "lucide-react";
 import {
   createGdprRequest,
   updateGdprRequestStatus,
   deleteGdprRequest,
   searchContactsForGdpr,
   setPersonUnsubscribed,
+  setUnsubscribeFooterText,
   type GdprRequestInput,
 } from "@/lib/actions/gdpr";
+
+const DEFAULT_FOOTER_TEXT = 'Unsubscribe from future emails.';
 
 type Person = { id: string; firstName: string; lastName: string | null; email: string | null; unsubscribedAt?: Date | null };
 type GdprRequest = {
@@ -30,7 +33,15 @@ function personLabel(p: Person) {
   return [p.firstName, p.lastName].filter(Boolean).join(" ") || p.email || "Unknown";
 }
 
-export function GdprManager({ requests: initial, unsubscribed: initialUnsubscribed }: { requests: GdprRequest[]; unsubscribed: Person[] }) {
+export function GdprManager({
+  requests: initial,
+  unsubscribed: initialUnsubscribed,
+  footerText,
+}: {
+  requests: GdprRequest[];
+  unsubscribed: Person[];
+  footerText: string | null;
+}) {
   const [requests, setRequests] = useState(initial);
   const [unsubscribed, setUnsubscribed] = useState(initialUnsubscribed);
   const [adding, setAdding] = useState(false);
@@ -62,6 +73,8 @@ export function GdprManager({ requests: initial, unsubscribed: initialUnsubscrib
 
   return (
     <div className="mt-6 space-y-8">
+      <FooterTextEditor initialText={footerText} />
+
       <div>
         <div className="flex items-center justify-between">
           <p className="text-[12px] font-medium text-subtle uppercase tracking-wide">Data-subject requests</p>
@@ -138,6 +151,48 @@ export function GdprManager({ requests: initial, unsubscribed: initialUnsubscrib
       </div>
 
       {adding && <AddRequestDialog onCancel={() => setAdding(false)} onCreate={handleCreate} />}
+    </div>
+  );
+}
+
+function FooterTextEditor({ initialText }: { initialText: string | null }) {
+  const [text, setText] = useState(initialText || DEFAULT_FOOTER_TEXT);
+  const [saved, setSaved] = useState(false);
+  const [, startTransition] = useTransition();
+
+  function handleSave() {
+    setSaved(false);
+    startTransition(() => {
+      void setUnsubscribeFooterText(text).then(() => setSaved(true));
+    });
+  }
+
+  return (
+    <div>
+      <p className="text-[12px] font-medium text-subtle uppercase tracking-wide">Unsubscribe message</p>
+      <p className="text-[12px] text-subtle mt-1">
+        Shown at the bottom of every outbound email. Use <code className="text-[11px] bg-muted px-1 py-0.5 rounded">{"{{unsubscribe_link}}"}</code> to
+        place the link yourself (e.g. inside a sentence, or in another language) — otherwise the whole text becomes the link.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSaved(false);
+        }}
+        rows={2}
+        className="w-full mt-2 text-[13px] outline-none bg-transparent border border-border rounded-md px-2.5 py-1.5 focus:border-accent transition-colors resize-none"
+      />
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          onClick={handleSave}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border text-[12.5px] hover:bg-muted transition-colors"
+        >
+          <Save size={13} strokeWidth={1.75} />
+          Save
+        </button>
+        {saved && <span className="text-[12px] text-subtle">Saved</span>}
+      </div>
     </div>
   );
 }

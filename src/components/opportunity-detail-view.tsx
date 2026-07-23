@@ -78,6 +78,7 @@ export function OpportunityDetailView({
             opportunityId={opportunity.id}
             personId={opportunity.contact?.id ?? null}
             personEmail={opportunity.contact?.email ?? null}
+            unsubscribed={!!opportunity.contact?.unsubscribedAt}
             contactName={
               opportunity.contact
                 ? [opportunity.contact.firstName, opportunity.contact.lastName].filter(Boolean).join(" ")

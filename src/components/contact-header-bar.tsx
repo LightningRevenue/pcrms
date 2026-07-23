@@ -27,6 +27,7 @@ export function ContactHeaderBar({
   companyName,
   personEmail,
   personPhone,
+  unsubscribed = false,
   stages,
   opportunities,
   isFavorited,
@@ -40,6 +41,7 @@ export function ContactHeaderBar({
   companyName: string | null;
   personEmail: string | null;
   personPhone: string | null;
+  unsubscribed?: boolean;
   stages: PipelineStage[];
   opportunities?: Opportunity[];
   isFavorited: boolean;
@@ -74,7 +76,7 @@ export function ContactHeaderBar({
   }
 
   function openCompose() {
-    setDraft({ personId: contactId, to: personEmail ? [personEmail] : [], contactFirstName: name.split(" ")[0] });
+    setDraft({ personId: contactId, to: personEmail ? [personEmail] : [], contactFirstName: name.split(" ")[0], unsubscribed });
   }
 
   function handleCreateTask(task: NewTaskDraft) {

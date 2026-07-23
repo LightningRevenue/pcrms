@@ -26,6 +26,7 @@ export function EmailThreadList({
   personId,
   personName,
   personEmail,
+  unsubscribed = false,
   emails,
   initialExpandedId,
   opportunities = [],
@@ -36,6 +37,7 @@ export function EmailThreadList({
   personId: string;
   personName?: string;
   personEmail: string | null;
+  unsubscribed?: boolean;
   emails: EmailWithOpens[];
   initialExpandedId?: string | null;
   opportunities?: Opportunity[];
@@ -74,6 +76,7 @@ export function EmailThreadList({
       to: personEmail ? [personEmail] : [],
       contactFirstName,
       opportunityIds: defaultOpportunityIds,
+      unsubscribed,
     });
   }
 
@@ -86,6 +89,7 @@ export function EmailThreadList({
       mailboxAccountId: email.mailboxAccountId ?? undefined,
       contactFirstName,
       opportunityIds: defaultOpportunityIds,
+      unsubscribed,
     });
   }
 
