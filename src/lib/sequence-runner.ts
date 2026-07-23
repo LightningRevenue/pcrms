@@ -3,6 +3,8 @@ import { sendGmailMessage } from "@/lib/gmail";
 import { interpolateForPerson } from "@/lib/template-variables";
 import { getTrackingBaseUrlForWorker } from "@/lib/workspace-settings";
 import { assertLimit } from "@/lib/entitlements";
+import { assertNotUnsubscribed } from "@/lib/gdpr";
+import { buildUnsubscribeUrl, unsubscribeHeaders, appendUnsubscribeFooter } from "@/lib/unsubscribe-footer";
 
 const CRON_JOB_NAME = "sequence-step-runner";
 
@@ -76,6 +78,7 @@ async function executeStepRun(
     if (!enrollment.person.email) throw new Error("Contact has no email address");
     if (!actorId) throw new Error("Sequence has no owner to send as");
     await assertLimit(workspaceId, "emails_sent_monthly");
+    await assertNotUnsubscribed(personId);
 
     const owner = await db.user.findUnique({ where: { id: actorId } });
     if (!owner?.email) throw new Error("Sequence owner has no connected email");
@@ -83,10 +86,12 @@ async function executeStepRun(
     const rawSubject = step.templateId ? step.template!.subject : step.subject ?? "";
     const rawBody = step.templateId ? step.template!.bodyHtml : step.bodyHtml ?? "";
 
-    const [subject, bodyHtml] = await Promise.all([
+    const [subject, interpolatedBody, unsubscribeUrl] = await Promise.all([
       interpolateForPerson(rawSubject, personId, workspaceId),
       interpolateForPerson(rawBody, personId, workspaceId),
+      buildUnsubscribeUrl(personId),
     ]);
+    const bodyHtml = appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl);
 
     const emailId = crypto.randomUUID();
     const trackingBaseUrl = await getTrackingBaseUrlForWorker();
@@ -98,6 +103,7 @@ async function executeStepRun(
       to: [enrollment.person.email],
       subject,
       bodyHtml: bodyHtml + trackingPixel,
+      extraHeaders: unsubscribeHeaders(unsubscribeUrl),
     });
 
     await db.email.create({

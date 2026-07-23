@@ -48,6 +48,7 @@ function buildMimeMessage(opts: {
   bodyHtml: string;
   inReplyTo?: string;
   references?: string[];
+  extraHeaders?: Record<string, string>;
 }) {
   const headers = [
     `From: ${opts.from}`,
@@ -57,6 +58,7 @@ function buildMimeMessage(opts: {
     `Subject: ${encodeHeader(opts.subject)}`,
     opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : null,
     opts.references?.length ? `References: ${opts.references.join(" ")}` : null,
+    ...Object.entries(opts.extraHeaders ?? {}).map(([key, value]) => `${key}: ${value}`),
     "MIME-Version: 1.0",
     `Content-Type: text/html; charset="UTF-8"`,
     "Content-Transfer-Encoding: 7bit",
@@ -76,6 +78,7 @@ export async function sendGmailMessage(opts: {
   threadId?: string;
   inReplyTo?: string;
   references?: string[];
+  extraHeaders?: Record<string, string>;
 }) {
   const accessToken = await getValidAccessToken(opts.userId);
   const raw = buildMimeMessage(opts);

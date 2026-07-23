@@ -159,6 +159,12 @@ export const ENTITLEMENTS = {
   playbooks_feature: { key: "playbooks_feature", label: "Playbooks", type: "feature" },
   dashboards_feature: { key: "dashboards_feature", label: "Dashboards / analytics", type: "feature" },
   lists_feature: { key: "lists_feature", label: "Lists", type: "feature" },
+  // Premium add-on: GDPR request tracking (Settings > GDPR) and unsubscribe enforcement on
+  // every send path. Unlike the other feature gates above, this one should ship *disabled* by
+  // default on existing plans (set an explicit PlanLimit row with value 0) rather than relying
+  // on the "no row = enabled" default — see checkLimit's feature branch — since it's meant to
+  // be sold separately, not silently on for everyone.
+  gdpr_feature: { key: "gdpr_feature", label: "GDPR tracking & unsubscribe enforcement", type: "feature" },
 
   // ---- Monthly volume ("N per month") ----
   emails_sent_monthly: {

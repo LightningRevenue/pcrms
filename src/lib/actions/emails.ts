@@ -9,6 +9,8 @@ import { syncPersonEmailThreads } from "@/lib/gmail-sync";
 import { getTrackingBaseUrl } from "@/lib/workspace-settings";
 import { interpolateForPerson } from "@/lib/template-variables";
 import { assertLimit } from "@/lib/entitlements";
+import { assertNotUnsubscribed } from "@/lib/gdpr";
+import { buildUnsubscribeUrl, unsubscribeHeaders, appendUnsubscribeFooter } from "@/lib/unsubscribe-footer";
 
 export type SendEmailInput = {
   personId: string;
@@ -27,6 +29,7 @@ export async function sendEmail(input: SendEmailInput) {
   const workspaceId = session.user.workspaceId;
   if (!workspaceId) throw new Error("No workspace");
   await assertLimit(workspaceId, "emails_sent_monthly");
+  await assertNotUnsubscribed(input.personId);
 
   const replyTo = input.replyToEmailId
     ? await db.email.findUnique({ where: { id: input.replyToEmailId, workspaceId } })
@@ -43,10 +46,12 @@ export async function sendEmail(input: SendEmailInput) {
     .map((e) => e.messageIdHeader)
     .filter((id): id is string => !!id);
 
-  const [subject, bodyHtml] = await Promise.all([
+  const [subject, interpolatedBody, unsubscribeUrl] = await Promise.all([
     interpolateForPerson(input.subject, input.personId, workspaceId),
     interpolateForPerson(input.bodyHtml, input.personId, workspaceId),
+    buildUnsubscribeUrl(input.personId),
   ]);
+  const bodyHtml = appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl);
 
   const emailId = crypto.randomUUID();
   const trackingBaseUrl = await getTrackingBaseUrl();
@@ -63,6 +68,7 @@ export async function sendEmail(input: SendEmailInput) {
     threadId: replyTo?.gmailThreadId ?? undefined,
     inReplyTo: replyTo?.messageIdHeader ?? undefined,
     references,
+    extraHeaders: unsubscribeHeaders(unsubscribeUrl),
   });
 
   const email = await db.email.create({

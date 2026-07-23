@@ -68,6 +68,7 @@ model Workspace {
   emailOpens             EmailOpen[]
   notes                  Note[]
   noteOpportunities      NoteOpportunity[]
+  gdprRequests           GdprRequest[]
   noteMentions           NoteMention[]
   campaigns              Campaign[]
   campaignMailboxes      CampaignMailbox[]
@@ -211,6 +212,7 @@ model User {
   calls                Call[]
   playbooks            Playbook[]
   customReports        CustomReport[]
+  handledGdprRequests  GdprRequest[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
@@ -347,6 +349,12 @@ model Person {
   // done in renameContactPipelineStage). No default stage until a workspace defines its own.
   stage String?
 
+  // Set the moment this person clicks the unsubscribe link in an email (see
+  // /api/unsubscribe/[token]) or an owner unsubscribes them manually from Settings > GDPR.
+  // Checked by assertNotUnsubscribed (lib/gdpr.ts) in every send path — manual compose,
+  // campaigns, and sequences all refuse to send once this is set, no exceptions.
+  unsubscribedAt DateTime?
+
   // Primary company, shown by default on the person's card/list row. Additional companies
   // (e.g. a consultant working with several clients) go through PersonCompany.
   companyId String?
@@ -373,6 +381,7 @@ model Person {
   calls               Call[]
   companyLinks        PersonCompany[]
   opportunityLinks    OpportunityPerson[]
+  gdprRequests        GdprRequest[]
 
   @@index([workspaceId])
   @@index([deletedAt])
@@ -1024,6 +1033,37 @@ model NoteOpportunity {
   @@id([noteId, opportunityId])
   @@index([opportunityId])
   @@index([workspaceId])
+}
+
+// A manually-logged GDPR data subject request (access/erasure/export) — the owner records it
+// after receiving the request through whatever channel (email, phone, a form outside this
+// app), then tracks it to completion here. Not a public self-service intake; see
+// Settings > GDPR (requireWorkspaceOwner-gated, same as Billing).
+model GdprRequest {
+  id     String  @id @default(cuid())
+  type   String // "access" | "erasure" | "export"
+  status String  @default("open") // "open" | "in_progress" | "completed"
+  note   String?
+
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  // Free-text fallback for when the requester isn't (or is no longer) a Person row in the
+  // CRM — e.g. someone who was never a contact, or whose Person record was already purged.
+  subjectName  String?
+  subjectEmail String?
+
+  handledById String?
+  handledBy   User?   @relation(fields: [handledById], references: [id])
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([personId])
 }
 
 // A bulk-email campaign: a one-off send to a static set of people, as opposed to a

@@ -29,6 +29,7 @@ import {
   Phone,
   BookOpenCheck,
   Trash2,
+  ShieldCheck,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -59,6 +60,7 @@ const SECTIONS = [
       { href: "/settings/layout", label: "Layout", icon: LayoutGrid },
       { href: "/settings/members", label: "Members", icon: Users },
       { href: "/settings/billing", label: "Billing", icon: DollarSign },
+      { href: "/settings/gdpr", label: "GDPR", icon: ShieldCheck },
       { href: "/settings/mcp-apis", label: "MCP & APIs", icon: Plug },
       { href: "/settings/apps", label: "Apps", icon: Grid3x3 },
       { href: "/settings/ai", label: "AI", icon: Sparkles },

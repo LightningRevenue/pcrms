@@ -11,6 +11,8 @@ import { interpolateForPerson } from "@/lib/template-variables";
 import { encrypt, decrypt } from "@/lib/encryption";
 import type { MailboxAccount } from "@prisma/client";
 import { assertLimit } from "@/lib/entitlements";
+import { assertNotUnsubscribed } from "@/lib/gdpr";
+import { buildUnsubscribeUrl, unsubscribeHeaders, appendUnsubscribeFooter } from "@/lib/unsubscribe-footer";
 
 export async function listMailboxAccounts() {
   const { workspaceId } = await requireWorkspace();
@@ -245,6 +247,7 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
   if (input.to.length === 0) throw new Error("Add at least one recipient");
   if (!input.subject.trim()) throw new Error("Add a subject");
   await assertLimit(input.workspaceId, "emails_sent_monthly");
+  await assertNotUnsubscribed(input.personId);
 
   const account = await db.mailboxAccount.findUniqueOrThrow({ where: { id: input.mailboxAccountId, workspaceId: input.workspaceId } });
 
@@ -252,11 +255,12 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     ? await db.email.findUnique({ where: { id: input.replyToEmailId, workspaceId: input.workspaceId } })
     : null;
 
-  const [subject, interpolatedBody] = await Promise.all([
+  const [subject, interpolatedBody, unsubscribeUrl] = await Promise.all([
     interpolateForPerson(input.subject, input.personId, input.workspaceId),
     interpolateForPerson(input.bodyHtml, input.personId, input.workspaceId),
+    buildUnsubscribeUrl(input.personId),
   ]);
-  const bodyHtml = interpolatedBody + (input.trackingPixelHtml ?? "");
+  const bodyHtml = appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl) + (input.trackingPixelHtml ?? "");
 
   const bcc = input.bcc ?? [];
 
@@ -275,6 +279,7 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     html: bodyHtml,
     inReplyTo: replyTo?.messageIdHeader ?? undefined,
     references: replyTo?.messageIdHeader ?? undefined,
+    headers: unsubscribeHeaders(unsubscribeUrl),
   });
 
   const email = await db.email.create({

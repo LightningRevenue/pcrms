@@ -18,7 +18,9 @@ export const config = {
   // (TwiML request, recording-status callback) with no CRM session cookie either.
   // api/stripe must stay excluded too — same reasoning, Stripe's servers POST the webhook
   // directly with a signature header instead of a session cookie.
+  // api/unsubscribe must stay excluded too — clicked by the email recipient, who has no CRM
+  // session either; the route verifies its own HMAC-signed token instead (see lib/gdpr.ts).
   // /invite/[token] must stay reachable logged-out — that's the whole point, an invited
   // person who doesn't have an account (or session) yet needs to open the link and sign in.
-  matcher: ["/((?!api/auth|api/track|api/twilio|api/stripe|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/auth|api/track|api/twilio|api/stripe|api/unsubscribe|_next/static|_next/image|favicon.ico).*)"],
 };
