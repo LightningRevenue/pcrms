@@ -102,45 +102,44 @@ export function LeadQuickActions({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-6 gap-1.5">
         <button
           onClick={openCompose}
           disabled={!personEmail}
-          title={personEmail ? undefined : "This contact has no email address"}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title={personEmail ? "Email" : "This contact has no email address"}
+          className="flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Mail size={14} strokeWidth={1.75} />
-          Email
         </button>
-        <CallButton personId={contactId} phone={personPhone} name={name} />
+        <CallButton personId={contactId} phone={personPhone} name={name} compact />
         <button
           onClick={() => setCreatingTask(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          title="Create task"
+          className="flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors"
         >
           <CheckSquare size={14} strokeWidth={1.75} />
-          Task
         </button>
         <button
           onClick={() => setCreatingNote(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          title="Create note"
+          className="flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors"
         >
           <StickyNote size={14} strokeWidth={1.75} />
-          Note
         </button>
         <button
           onClick={() => setConverting(true)}
           disabled={pending}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-50"
+          title="Convert to opportunity"
+          className="flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-50"
         >
           <Handshake size={14} strokeWidth={1.75} />
-          Convert
         </button>
         <button
           onClick={() => setAddingToSequence(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          title="Add to sequence"
+          className="flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors"
         >
           <GitBranch size={14} strokeWidth={1.75} />
-          Sequence
         </button>
       </div>
 

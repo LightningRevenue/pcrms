@@ -6,7 +6,19 @@ import { startCall, getVoiceStatus } from "@/lib/actions/calls";
 
 type CallState = "idle" | "connecting" | "ringing" | "in-progress" | "ending";
 
-export function CallButton({ personId, phone, name }: { personId: string; phone: string | null; name: string }) {
+export function CallButton({
+  personId,
+  phone,
+  name,
+  compact = false,
+}: {
+  personId: string;
+  phone: string | null;
+  name: string;
+  // Icon-only, no label — used in the /lead/[id] quick-actions grid. Still shows the
+  // in-progress label (ringing/timer) since that's live status, not a static caption.
+  compact?: boolean;
+}) {
   const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
   const [state, setState] = useState<CallState>("idle");
   const [seconds, setSeconds] = useState(0);
@@ -82,14 +94,19 @@ export function CallButton({ personId, phone, name }: { personId: string; phone:
     return (
       <button
         onClick={handleHangup}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-red-400/40 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
+        title={compact ? label : undefined}
+        className={
+          compact
+            ? "flex items-center justify-center size-9 rounded-md border border-red-400/40 text-red-400 hover:bg-red-500/10 transition-colors"
+            : "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-red-400/40 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
+        }
       >
         {state === "connecting" || state === "ending" ? (
           <Loader2 size={14} strokeWidth={1.75} className="animate-spin" />
         ) : (
           <PhoneOff size={14} strokeWidth={1.75} />
         )}
-        {label}
+        {!compact && label}
       </button>
     );
   }
@@ -100,10 +117,14 @@ export function CallButton({ personId, phone, name }: { personId: string; phone:
         onClick={handleCall}
         disabled={!phone || voiceReady === false}
         title={!phone ? "This contact has no phone number" : voiceReady === false ? "Connect Twilio Voice in Settings first" : `Call ${name}`}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className={
+          compact
+            ? "flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            : "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        }
       >
         <Phone size={14} strokeWidth={1.75} />
-        Call
+        {!compact && "Call"}
       </button>
       {error && (
         <p className="absolute left-0 top-full mt-1 w-56 text-[12px] text-red-400 whitespace-normal z-10">{error}</p>
