@@ -15,6 +15,7 @@ import { OwnerSelect } from "@/components/owner-select";
 import { ContactPlaybooksPanel } from "@/components/contact-playbooks-panel";
 import { LeadQuickActions } from "@/components/lead-quick-actions";
 import { UnsubscribeToggle } from "@/components/unsubscribe-toggle";
+import { VerifyEmailButton } from "@/components/verify-email-button";
 import { updatePersonField, setPersonCompany, setPersonOwner, type PersonField } from "@/lib/actions/contacts";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
 import type { MailboxOption } from "@/components/email-composer";
@@ -132,7 +133,19 @@ export function ContactDetailPanel({
         </p>
 
         <FieldSection title="General">
-          <EditableFieldRow icon={Mail} label="Email" value={contact.email ?? ""} onSave={(v) => updatePersonField(contact.id, "email", v)} />
+          <div className="flex items-center gap-1">
+            <div className="flex-1 min-w-0">
+              <EditableFieldRow icon={Mail} label="Email" value={contact.email ?? ""} onSave={(v) => updatePersonField(contact.id, "email", v)} />
+            </div>
+            {contact.email && (
+              <VerifyEmailButton
+                personId={contact.id}
+                status={contact.emailVerifiedStatus}
+                verifiedAt={contact.emailVerifiedAt}
+                reason={contact.emailVerifiedReason}
+              />
+            )}
+          </div>
           <EditableFieldRow icon={Phone} label="Phone" value={contact.phone ?? ""} onSave={(v) => updatePersonField(contact.id, "phone", v)} />
         </FieldSection>
 

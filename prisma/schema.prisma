@@ -355,6 +355,14 @@ model Person {
   // campaigns, and sequences all refuse to send once this is set, no exceptions.
   unsubscribedAt DateTime?
 
+  // Result of the last SMTP handshake check against this person's email (see
+  // lib/actions/email-verify.ts). "valid" | "invalid" | "catch-all" — null means never checked.
+  emailVerifiedStatus String?
+  emailVerifiedAt     DateTime?
+  // Human-readable reason from the verify API (e.g. "Mail server rejected recipient") —
+  // shown as a tooltip on the status badge so an admin can see why without re-running the check.
+  emailVerifiedReason String?
+
   // Primary company, shown by default on the person's card/list row. Additional companies
   // (e.g. a consultant working with several clients) go through PersonCompany.
   companyId String?

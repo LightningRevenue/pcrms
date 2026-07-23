@@ -30,6 +30,7 @@ import {
   BookOpenCheck,
   Trash2,
   ShieldCheck,
+  MailCheck,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -57,6 +58,7 @@ const SECTIONS = [
       { href: "/settings/pipeline", label: "Pipeline", icon: Target },
       { href: "/settings/contacts-pipeline", label: "Contacts Pipeline", icon: Users2 },
       { href: "/settings/import", label: "Import", icon: Upload },
+      { href: "/settings/email-verifier", label: "Email Verifier", icon: MailCheck },
       { href: "/settings/layout", label: "Layout", icon: LayoutGrid },
       { href: "/settings/members", label: "Members", icon: Users },
       { href: "/settings/billing", label: "Billing", icon: DollarSign },

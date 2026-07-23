@@ -191,6 +191,14 @@ export const ENTITLEMENTS = {
       return batches.reduce((sum, b) => sum + b.successRows + b.errorRows, 0);
     },
   },
+  email_verifications_monthly: {
+    key: "email_verifications_monthly",
+    label: "Email verifications",
+    type: "monthly",
+    // Counts Person.emailVerifiedAt timestamps this month — re-verifying the same contact
+    // twice in one month counts twice, since emailVerifiedAt only holds the latest check.
+    measure: (workspaceId) => db.person.count({ where: { workspaceId, emailVerifiedAt: { gte: startOfMonth() } } }),
+  },
 } as const satisfies Record<string, EntitlementDefinition>;
 
 export type EntitlementKey = keyof typeof ENTITLEMENTS;
