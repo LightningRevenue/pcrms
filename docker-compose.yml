@@ -65,6 +65,9 @@ services:
       REDIS_URL: redis://redis:6379
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
+      # Needed by src/lib/gdpr.ts's buildUnsubscribeToken (HMAC-signs the unsubscribe link
+      # every send path attaches) — without it, any step that actually sends an email throws.
+      AUTH_SECRET: ${AUTH_SECRET}
 
   imap-poll-worker:
     build:
@@ -94,6 +97,9 @@ services:
     environment:
       DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
       REDIS_URL: redis://redis:6379
+      # Needed by src/lib/gdpr.ts's buildUnsubscribeToken (HMAC-signs the unsubscribe link
+      # every send path attaches) — without it, any step that actually sends an email throws.
+      AUTH_SECRET: ${AUTH_SECRET}
 
   trash-purge-worker:
     build:
