@@ -31,6 +31,8 @@ import {
   Trash2,
   ShieldCheck,
   MailCheck,
+  MailSearch,
+  UserSearch,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -59,6 +61,8 @@ const SECTIONS = [
       { href: "/settings/contacts-pipeline", label: "Contacts Pipeline", icon: Users2 },
       { href: "/settings/import", label: "Import", icon: Upload },
       { href: "/settings/email-verifier", label: "Email Verifier", icon: MailCheck },
+      { href: "/settings/mail-verifier", label: "Mail Verifier", icon: MailSearch },
+      { href: "/settings/linkedin-finder", label: "LinkedIn Finder", icon: UserSearch },
       { href: "/settings/layout", label: "Layout", icon: LayoutGrid },
       { href: "/settings/members", label: "Members", icon: Users },
       { href: "/settings/billing", label: "Billing", icon: DollarSign },

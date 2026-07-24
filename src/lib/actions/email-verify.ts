@@ -16,7 +16,7 @@ function statusOf(data: { valid: boolean; catchAll: boolean }) {
   return data.valid ? "valid" : "invalid";
 }
 
-async function callVerifyApi(email: string): Promise<EmailVerifyResult> {
+export async function callVerifyApi(email: string): Promise<EmailVerifyResult> {
   const res = await fetch(process.env.SMTP_VERIFY_API_URL!, {
     method: "POST",
     headers: {

@@ -218,6 +218,57 @@ export async function addManyDealsToCampaign(
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
+export type CampaignListOption = {
+  id: string;
+  name: string;
+  entityType: "person" | "opportunity";
+  count: number;
+};
+
+// Only person/opportunity lists can seed a campaign — company lists have no direct
+// recipient email, so they're left out rather than guessing at a "primary contact".
+export async function listAttachableListsForCampaign(): Promise<CampaignListOption[]> {
+  const { workspaceId } = await requireWorkspace();
+  const lists = await db.list.findMany({
+    where: { workspaceId, entityType: { in: ["person", "opportunity"] } },
+    include: { _count: { select: { items: true } } },
+    orderBy: { name: "asc" },
+  });
+  return lists.map((l) => ({
+    id: l.id,
+    name: l.name,
+    entityType: l.entityType as "person" | "opportunity",
+    count: l._count.items,
+  }));
+}
+
+// Adds every member of a list to the campaign in one shot. Person lists map straight to
+// contacts; opportunity lists resolve to each deal's linked contact (deals with no contact
+// are skipped, same as searchDealsForCampaign already does for manual add).
+export async function addListToCampaign(campaignId: string, listId: string) {
+  const { workspaceId } = await requireWorkspace();
+  const [list, unavailable] = await Promise.all([
+    db.list.findUniqueOrThrow({ where: { id: listId, workspaceId }, include: { items: true } }),
+    findUnavailablePersonIds(workspaceId),
+  ]);
+  const entityIds = list.items.map((i) => i.entityId);
+
+  if (list.entityType === "person") {
+    await addManyContactsToCampaign(campaignId, entityIds.filter((id) => !unavailable.has(id)));
+  } else if (list.entityType === "opportunity") {
+    const deals = await db.opportunity.findMany({
+      where: { workspaceId, id: { in: entityIds }, contactId: { not: null } },
+      select: { id: true, contactId: true },
+    });
+    await addManyDealsToCampaign(
+      campaignId,
+      deals.filter((d) => !unavailable.has(d.contactId!)).map((d) => ({ opportunityId: d.id, personId: d.contactId! }))
+    );
+  } else {
+    throw new Error("Only person or deal lists can be attached to a campaign.");
+  }
+}
+
 export async function removeMemberFromCampaign(campaignId: string, personId: string) {
   const { workspaceId } = await requireWorkspace();
 

@@ -70,6 +70,7 @@ model Workspace {
   noteOpportunities      NoteOpportunity[]
   gdprRequests           GdprRequest[]
   noteMentions           NoteMention[]
+  linkedinProspects      LinkedinProspect[]
   campaigns              Campaign[]
   campaignMailboxes      CampaignMailbox[]
   campaignMembers        CampaignMember[]
@@ -82,6 +83,9 @@ model Workspace {
   favorites              Favorite[]
   notifications          Notification[]
   settings               WorkspaceSetting[]
+  objectDefinitions      ObjectDefinition[]
+  fieldDefinitions       FieldDefinition[]
+  objectRecords          ObjectRecord[]
 }
 
 // A subscription tier (e.g. Free/Pro/Enterprise — names/pricing decided later, not here).
@@ -213,6 +217,8 @@ model User {
   playbooks            Playbook[]
   customReports        CustomReport[]
   handledGdprRequests  GdprRequest[]
+  createdObjectDefinitions ObjectDefinition[]
+  createdObjectRecords     ObjectRecord[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
@@ -1249,4 +1255,123 @@ model SequenceStepRun {
   @@unique([enrollmentId, stepId])
   @@index([status, scheduledFor])
   @@index([workspaceId])
+}
+
+// One row per LinkedIn profile found by a search run in Settings > LinkedIn Finder.
+// Deliberately its own table rather than writing straight into Person — a search returns
+// noisy/duplicate hits the user hasn't reviewed yet, so results land here first and only
+// get promoted to a real Person on explicit "Import" (see importProspectToPerson).
+model LinkedinProspect {
+  id          String   @id @default(cuid())
+  query       String
+  linkedinUrn String // LinkedIn's internal member URN, dedupes hits across repeated searches
+  name        String
+  headline    String?
+  location    String?
+  linkedin    String? // public profile URL, null if LinkedIn didn't return a resolvable vanity slug
+  createdAt   DateTime @default(now())
+
+  // Set once this prospect has been imported into the CRM as a real Person — lets the UI
+  // grey out "Import" instead of creating duplicate Person rows on a re-search.
+  importedPersonId String?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, linkedinUrn])
+  @@index([workspaceId, createdAt])
+}
+
+// A user-defined object type (e.g. "Products") — the schema for its records lives in
+// FieldDefinition, not as real Postgres columns. Deliberately not DDL-backed: see
+// ObjectRecord for the storage tradeoff. This model is the part that WOULD become a
+// `CREATE TABLE` if this ever migrates to real per-object tables, so keep it authoritative
+// and complete (name/slug/labels) rather than treating it as a UI-only label.
+model ObjectDefinition {
+  id           String   @id @default(cuid())
+  slug         String // url-safe, stable identifier — e.g. "products"
+  name         String
+  nameSingular String
+  namePlural   String
+  icon         String   @default("Package") // lucide-react icon name
+  createdAt    DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  fields  FieldDefinition[]
+  records ObjectRecord[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+// One field on a custom object. `key` is the stable JSONB key used in ObjectRecord.values.
+// `relationTarget` is "person" | "company" | "opportunity" | an ObjectDefinition.id, resolved
+// by lookup code rather than a real FK (JSONB can't hold one) — the one place this storage
+// model differs from a real DDL-backed relation.
+model FieldDefinition {
+  id       String   @id @default(cuid())
+  key      String // stable, set once at creation from the label; never renamed
+  label    String
+  type     String // "text" | "number" | "date" | "boolean" | "select" | "relation"
+  options  String[] @default([]) // choices, only used when type = "select"
+  required Boolean  @default(false)
+  order    Int      @default(0)
+
+  // Only set when type = "relation" — either a fixed CRM entity or another custom object's id.
+  relationTarget String?
+
+  // Conditional visibility: this field only shows/applies on the record form when
+  // dependsOnField has a value — and if dependsOnValue is also set, only when it equals
+  // that exact value (e.g. "Price" depends on "In Stock" = "true"). Self-relation within the
+  // same object; deliberately no onDelete cascade loop — see deleteField's cleanup instead.
+  dependsOnFieldId String?
+  dependsOnField   FieldDefinition?  @relation("FieldDependency", fields: [dependsOnFieldId], references: [id], onDelete: SetNull)
+  dependsOnValue   String?
+  dependents       FieldDefinition[] @relation("FieldDependency")
+
+  // Free-form position on the record form's custom layout canvas — null until the workspace
+  // saves a layout via setFieldLayout, at which point the form switches from the default
+  // linear list to this absolute positioning.
+  layoutX Int?
+  layoutY Int?
+  layoutW Int?
+
+  objectDefinitionId String
+  objectDefinition    ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([objectDefinitionId, key])
+  @@index([workspaceId])
+  @@index([dependsOnFieldId])
+}
+
+// One row per record (e.g. one Product). `values` is a JSONB map of {fieldKey: value},
+// written and read only through objects.ts, which validates every write against the
+// object's FieldDefinition rows (type-checked, required enforced) — never a free-form blob.
+// Chosen over one-row-per-field-value (EAV) so a single record is a single row: no joins to
+// read or filter a record, and a future move to real DDL columns is a straight
+// `INSERT INTO new_table SELECT values->>'key', ...` per field.
+model ObjectRecord {
+  id        String   @id @default(cuid())
+  values    Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  objectDefinitionId String
+  objectDefinition    ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, objectDefinitionId])
 }

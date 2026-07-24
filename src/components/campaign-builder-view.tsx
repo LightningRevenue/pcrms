@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Check, X, Megaphone, Users, KanbanSquare, ArrowRight, ArrowLeft, Inbox, FileText, Send, Clock } from "lucide-react";
+import { Search, Check, X, Megaphone, Users, KanbanSquare, ListChecks, ArrowRight, ArrowLeft, Inbox, FileText, Send, Clock } from "lucide-react";
 import {
   searchContactsForCampaign,
   searchDealsForCampaign,
@@ -10,6 +10,8 @@ import {
   addDealToCampaign,
   addManyContactsToCampaign,
   addManyDealsToCampaign,
+  listAttachableListsForCampaign,
+  addListToCampaign,
   removeMemberFromCampaign,
   getActiveMailboxAccountsForCampaign,
   setCampaignMailboxes,
@@ -21,6 +23,7 @@ import {
   getCampaignProgress,
   type CampaignPersonRow,
   type CampaignDealRow,
+  type CampaignListOption,
   type CampaignTemplateOption,
   type CampaignReadiness,
 } from "@/lib/actions/campaigns";
@@ -42,7 +45,7 @@ type Campaign = {
   }[];
 };
 
-type Tab = "contacts" | "deals";
+type Tab = "contacts" | "deals" | "lists";
 type Step = "recipients" | "inboxes" | "template";
 
 export function CampaignBuilderView({ campaign }: { campaign: Campaign }) {
@@ -94,21 +97,32 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
   const [query, setQuery] = useState("");
   const [contactRows, setContactRows] = useState<CampaignPersonRow[]>([]);
   const [dealRows, setDealRows] = useState<CampaignDealRow[]>([]);
+  const [listRows, setListRows] = useState<CampaignListOption[]>([]);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   useEffect(() => {
     if (tab === "contacts") {
       searchContactsForCampaign(campaign.id, query).then(setContactRows);
-    } else {
+    } else if (tab === "deals") {
       searchDealsForCampaign(campaign.id, query).then(setDealRows);
+    } else {
+      listAttachableListsForCampaign().then(setListRows);
     }
   }, [campaign.id, tab, query]);
 
   function refresh() {
     router.refresh();
     if (tab === "contacts") searchContactsForCampaign(campaign.id, query).then(setContactRows);
-    else searchDealsForCampaign(campaign.id, query).then(setDealRows);
+    else if (tab === "deals") searchDealsForCampaign(campaign.id, query).then(setDealRows);
+    else listAttachableListsForCampaign().then(setListRows);
+  }
+
+  function attachList(listId: string) {
+    startTransition(async () => {
+      await addListToCampaign(campaign.id, listId);
+      refresh();
+    });
   }
 
   function toggleContact(row: CampaignPersonRow) {
@@ -178,27 +192,71 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
             <KanbanSquare size={14} strokeWidth={1.5} />
             Deals
           </button>
+          <button
+            onClick={() => setTab("lists")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] transition-colors ${
+              tab === "lists" ? "bg-muted text-foreground font-medium" : "text-subtle hover:text-foreground"
+            }`}
+          >
+            <ListChecks size={14} strokeWidth={1.5} />
+            Lists
+          </button>
         </div>
 
-        <div className="p-3 border-b border-border flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-border">
-            <Search size={14} strokeWidth={1.5} className="text-subtle shrink-0" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={tab === "contacts" ? "Search contacts…" : "Search deals…"}
-              className="flex-1 min-w-0 text-[13px] outline-none bg-transparent placeholder:text-subtle"
-            />
+        {tab !== "lists" && (
+          <div className="p-3 border-b border-border flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-border">
+              <Search size={14} strokeWidth={1.5} className="text-subtle shrink-0" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={tab === "contacts" ? "Search contacts…" : "Search deals…"}
+                className="flex-1 min-w-0 text-[13px] outline-none bg-transparent placeholder:text-subtle"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
-        <label className="shrink-0 flex items-center gap-3 px-6 py-2 border-b border-border text-[12px] text-subtle cursor-pointer hover:bg-muted/40 transition-colors">
-          <Checkbox checked={allSelected} onClick={toggleSelectAll} disabled={pending || selectable.length === 0} />
-          Select all {tab === "contacts" ? "contacts" : "deals"} in view
-        </label>
+        {tab !== "lists" && (
+          <label className="shrink-0 flex items-center gap-3 px-6 py-2 border-b border-border text-[12px] text-subtle cursor-pointer hover:bg-muted/40 transition-colors">
+            <Checkbox checked={allSelected} onClick={toggleSelectAll} disabled={pending || selectable.length === 0} />
+            Select all {tab === "contacts" ? "contacts" : "deals"} in view
+          </label>
+        )}
 
         <div className="flex-1 min-h-0 overflow-auto">
-          {(tab === "contacts" ? contactRows : dealRows).length === 0 ? (
+          {tab === "lists" ? (
+            listRows.length === 0 ? (
+              <p className="text-[13px] text-subtle text-center py-8">
+                No person or deal lists yet. Create one from Lists.
+              </p>
+            ) : (
+              <div className="divide-y divide-border">
+                {listRows.map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={() => attachList(l.id)}
+                    disabled={pending || l.count === 0}
+                    title={l.count === 0 ? "List is empty" : "Add every member of this list as a recipient"}
+                    className="w-full flex items-center gap-3 px-6 py-2.5 hover:bg-muted/40 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {l.entityType === "person" ? (
+                      <Users size={14} strokeWidth={1.5} className="text-subtle shrink-0" />
+                    ) : (
+                      <KanbanSquare size={14} strokeWidth={1.5} className="text-subtle shrink-0" />
+                    )}
+                    <span className="flex-1 min-w-0">
+                      <p className="text-[13px] truncate">{l.name}</p>
+                      <p className="text-[12px] text-subtle truncate">
+                        {l.count} {l.entityType === "person" ? "contact" : "deal"}{l.count === 1 ? "" : "s"}
+                      </p>
+                    </span>
+                    <span className="text-[11px] text-subtle shrink-0">Add all</span>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (tab === "contacts" ? contactRows : dealRows).length === 0 ? (
             <p className="text-[13px] text-subtle text-center py-8">No results.</p>
           ) : (
             <div className="divide-y divide-border">

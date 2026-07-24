@@ -65,6 +65,7 @@ export async function createContact(input: CreateContactInput) {
   });
 
   revalidatePath("/contacts");
+  return person.id;
 }
 
 export async function deleteContacts(ids: string[]) {
