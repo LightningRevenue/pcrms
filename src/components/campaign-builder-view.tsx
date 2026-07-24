@@ -136,31 +136,70 @@ function ProgressStep({ campaignId }: { campaignId: string }) {
   return <CampaignDashboardView campaign={{ id: campaignId }} />;
 }
 
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+
 function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () => void }) {
   const [tab, setTab] = useState<Tab>("contacts");
   const [query, setQuery] = useState("");
   const [contactRows, setContactRows] = useState<CampaignPersonRow[]>([]);
   const [dealRows, setDealRows] = useState<CampaignDealRow[]>([]);
   const [listRows, setListRows] = useState<CampaignListOption[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
+  // Opt-in, off by default — the user chooses to hide leads already in other campaigns
+  // rather than being forced to; unrelated to the "unavailable" Sequence block, which
+  // always applies.
+  const [hideInOtherCampaigns, setHideInOtherCampaigns] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
+  // Setters below reset page to 1 whenever the search narrows or the filter/tab/page-size
+  // changes — a stale page number from a wider result set could otherwise point past the
+  // end of a narrower one.
+  function changeTab(next: Tab) {
+    setTab(next);
+    setPage(1);
+  }
+  function changeQuery(next: string) {
+    setQuery(next);
+    setPage(1);
+  }
+  function changeHideInOtherCampaigns(next: boolean) {
+    setHideInOtherCampaigns(next);
+    setPage(1);
+  }
+  function changePageSize(next: number) {
+    setPageSize(next);
+    setPage(1);
+  }
+
   useEffect(() => {
+    const options = { page, pageSize, hideInOtherCampaigns };
     if (tab === "contacts") {
-      searchContactsForCampaign(campaign.id, query).then(setContactRows);
+      searchContactsForCampaign(campaign.id, query, options).then((r) => {
+        setContactRows(r.rows);
+        setTotal(r.total);
+      });
     } else if (tab === "deals") {
-      searchDealsForCampaign(campaign.id, query).then(setDealRows);
+      searchDealsForCampaign(campaign.id, query, options).then((r) => {
+        setDealRows(r.rows);
+        setTotal(r.total);
+      });
     } else {
       listAttachableListsForCampaign().then(setListRows);
     }
-  }, [campaign.id, tab, query]);
+  }, [campaign.id, tab, query, page, pageSize, hideInOtherCampaigns]);
 
   function refresh() {
     router.refresh();
-    if (tab === "contacts") searchContactsForCampaign(campaign.id, query).then(setContactRows);
-    else if (tab === "deals") searchDealsForCampaign(campaign.id, query).then(setDealRows);
+    const options = { page, pageSize, hideInOtherCampaigns };
+    if (tab === "contacts") searchContactsForCampaign(campaign.id, query, options).then((r) => { setContactRows(r.rows); setTotal(r.total); });
+    else if (tab === "deals") searchDealsForCampaign(campaign.id, query, options).then((r) => { setDealRows(r.rows); setTotal(r.total); });
     else listAttachableListsForCampaign().then(setListRows);
   }
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   function attachList(listId: string) {
     startTransition(async () => {
@@ -219,7 +258,7 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
       <div className="flex-1 min-w-0 flex flex-col border-r border-border">
         <div className="h-11 shrink-0 flex items-center gap-1 px-6 border-b border-border">
           <button
-            onClick={() => setTab("contacts")}
+            onClick={() => changeTab("contacts")}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] transition-colors ${
               tab === "contacts" ? "bg-muted text-foreground font-medium" : "text-subtle hover:text-foreground"
             }`}
@@ -228,7 +267,7 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
             Contacts
           </button>
           <button
-            onClick={() => setTab("deals")}
+            onClick={() => changeTab("deals")}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] transition-colors ${
               tab === "deals" ? "bg-muted text-foreground font-medium" : "text-subtle hover:text-foreground"
             }`}
@@ -237,7 +276,7 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
             Deals
           </button>
           <button
-            onClick={() => setTab("lists")}
+            onClick={() => changeTab("lists")}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] transition-colors ${
               tab === "lists" ? "bg-muted text-foreground font-medium" : "text-subtle hover:text-foreground"
             }`}
@@ -253,7 +292,7 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
               <Search size={14} strokeWidth={1.5} className="text-subtle shrink-0" />
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => changeQuery(e.target.value)}
                 placeholder={tab === "contacts" ? "Search contacts…" : "Search deals…"}
                 className="flex-1 min-w-0 text-[13px] outline-none bg-transparent placeholder:text-subtle"
               />
@@ -262,9 +301,32 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
         )}
 
         {tab !== "lists" && (
+          <div className="shrink-0 flex items-center justify-between gap-3 px-6 py-2 border-b border-border">
+            <label className="flex items-center gap-2 text-[12px] text-subtle cursor-pointer">
+              <Checkbox checked={hideInOtherCampaigns} onClick={() => changeHideInOtherCampaigns(!hideInOtherCampaigns)} />
+              Hide leads already in other campaigns
+            </label>
+            <label className="flex items-center gap-1.5 text-[12px] text-subtle shrink-0">
+              Per page
+              <select
+                value={pageSize}
+                onChange={(e) => changePageSize(Number(e.target.value))}
+                className="px-1.5 py-0.5 rounded-md border border-border text-[12px] outline-none bg-transparent"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n} className="bg-background text-foreground">
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
+        {tab !== "lists" && (
           <label className="shrink-0 flex items-center gap-3 px-6 py-2 border-b border-border text-[12px] text-subtle cursor-pointer hover:bg-muted/40 transition-colors">
             <Checkbox checked={allSelected} onClick={toggleSelectAll} disabled={pending || selectable.length === 0} />
-            Select all {tab === "contacts" ? "contacts" : "deals"} in view
+            Select all {tab === "contacts" ? "contacts" : "deals"} in view · page {page} of {pageCount}
           </label>
         )}
 
@@ -340,6 +402,8 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
             </div>
           )}
         </div>
+
+        {tab !== "lists" && pageCount > 1 && <PaginationBar page={page} pageCount={pageCount} onPage={setPage} />}
       </div>
 
       <div className="w-72 shrink-0 flex flex-col">
@@ -1102,6 +1166,61 @@ function StartCampaignModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Windowed page numbers (1 2 3 4 … N), not every page — a workspace with thousands of
+// contacts at pageSize 50 would otherwise render dozens of page buttons.
+function pageWindow(page: number, pageCount: number): (number | "…")[] {
+  const window = 2;
+  const pages = new Set<number>([1, pageCount]);
+  for (let p = page - window; p <= page + window; p++) {
+    if (p >= 1 && p <= pageCount) pages.add(p);
+  }
+  const sorted = [...pages].sort((a, b) => a - b);
+  const result: (number | "…")[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0 && sorted[i] - sorted[i - 1] > 1) result.push("…");
+    result.push(sorted[i]);
+  }
+  return result;
+}
+
+function PaginationBar({ page, pageCount, onPage }: { page: number; pageCount: number; onPage: (page: number) => void }) {
+  return (
+    <div className="shrink-0 flex items-center justify-center gap-1 px-3 py-2 border-t border-border">
+      <button
+        onClick={() => onPage(page - 1)}
+        disabled={page <= 1}
+        className="p-1.5 rounded-md text-subtle hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <ArrowLeft size={14} strokeWidth={2} />
+      </button>
+      {pageWindow(page, pageCount).map((p, i) =>
+        p === "…" ? (
+          <span key={`ellipsis-${i}`} className="px-1.5 text-[12px] text-subtle">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onPage(p)}
+            className={`min-w-[26px] px-1.5 py-1 rounded-md text-[12px] transition-colors ${
+              p === page ? "bg-accent text-white font-medium" : "text-subtle hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            {p}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onPage(page + 1)}
+        disabled={page >= pageCount}
+        className="p-1.5 rounded-md text-subtle hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <ArrowRight size={14} strokeWidth={2} />
+      </button>
     </div>
   );
 }

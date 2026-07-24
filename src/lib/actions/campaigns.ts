@@ -79,41 +79,83 @@ export type CampaignPersonRow = {
   unavailable: boolean;
 };
 
-export async function searchContactsForCampaign(campaignId: string, query: string): Promise<CampaignPersonRow[]> {
+// A person is enrolled "in another campaign" if they're a CampaignMember of any campaign
+// other than this one — informational only (shown via the Contacts "Campaigns" column),
+// never a hard block; hideInOtherCampaigns is an opt-in picker filter, not a system rule.
+async function findPersonIdsInOtherCampaigns(workspaceId: string, excludeCampaignId: string): Promise<Set<string>> {
+  const members = await db.campaignMember.findMany({
+    where: { workspaceId, campaignId: { not: excludeCampaignId } },
+    select: { personId: true },
+  });
+  return new Set(members.map((m) => m.personId));
+}
+
+export type CampaignSearchOptions = {
+  page?: number; // 1-indexed
+  pageSize?: number;
+  hideInOtherCampaigns?: boolean;
+};
+
+export type CampaignSearchResult<T> = {
+  rows: T[];
+  total: number;
+};
+
+const DEFAULT_PAGE_SIZE = 50;
+
+export async function searchContactsForCampaign(
+  campaignId: string,
+  query: string,
+  options: CampaignSearchOptions = {}
+): Promise<CampaignSearchResult<CampaignPersonRow>> {
   const { workspaceId } = await requireWorkspace();
-  const [campaign, unavailable] = await Promise.all([
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+
+  const [campaign, unavailable, inOtherCampaigns] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId }, include: { members: true } }),
     findUnavailablePersonIds(workspaceId),
+    options.hideInOtherCampaigns ? findPersonIdsInOtherCampaigns(workspaceId, campaignId) : Promise.resolve(null),
   ]);
   const inCampaignIds = new Set(campaign.members.map((m) => m.personId));
 
   const q = query.trim();
-  const people = await db.person.findMany({
-    where: {
-      workspaceId,
-      deletedAt: null,
-      ...(q
-        ? {
-            OR: [
-              { firstName: { contains: q, mode: "insensitive" } },
-              { lastName: { contains: q, mode: "insensitive" } },
-              { email: { contains: q, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    },
-    include: { company: true },
-    orderBy: { firstName: "asc" },
-    take: 30,
-  });
+  const where = {
+    workspaceId,
+    deletedAt: null,
+    ...(q
+      ? {
+          OR: [
+            { firstName: { contains: q, mode: "insensitive" as const } },
+            { lastName: { contains: q, mode: "insensitive" as const } },
+            { email: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+    ...(inOtherCampaigns ? { id: { notIn: [...inOtherCampaigns] } } : {}),
+  };
 
-  return people.map((p) => ({
-    id: p.id,
-    name: [p.firstName, p.lastName].filter(Boolean).join(" ") || "Untitled",
-    subtitle: [p.email, p.company?.name].filter(Boolean).join(" · ") || null,
-    alreadyInCampaign: inCampaignIds.has(p.id),
-    unavailable: !inCampaignIds.has(p.id) && unavailable.has(p.id),
-  }));
+  const [people, total] = await Promise.all([
+    db.person.findMany({
+      where,
+      include: { company: true },
+      orderBy: { firstName: "asc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.person.count({ where }),
+  ]);
+
+  return {
+    total,
+    rows: people.map((p) => ({
+      id: p.id,
+      name: [p.firstName, p.lastName].filter(Boolean).join(" ") || "Untitled",
+      subtitle: [p.email, p.company?.name].filter(Boolean).join(" · ") || null,
+      alreadyInCampaign: inCampaignIds.has(p.id),
+      unavailable: !inCampaignIds.has(p.id) && unavailable.has(p.id),
+    })),
+  };
 }
 
 export type CampaignDealRow = {
@@ -125,39 +167,56 @@ export type CampaignDealRow = {
   unavailable: boolean;
 };
 
-export async function searchDealsForCampaign(campaignId: string, query: string): Promise<CampaignDealRow[]> {
+export async function searchDealsForCampaign(
+  campaignId: string,
+  query: string,
+  options: CampaignSearchOptions = {}
+): Promise<CampaignSearchResult<CampaignDealRow>> {
   const { workspaceId } = await requireWorkspace();
-  const [campaign, unavailable] = await Promise.all([
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+
+  const [campaign, unavailable, inOtherCampaigns] = await Promise.all([
     db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId }, include: { members: true } }),
     findUnavailablePersonIds(workspaceId),
+    options.hideInOtherCampaigns ? findPersonIdsInOtherCampaigns(workspaceId, campaignId) : Promise.resolve(null),
   ]);
   const inCampaignIds = new Set(campaign.members.map((m) => m.personId));
 
   const q = query.trim();
-  const deals = await db.opportunity.findMany({
-    where: {
-      workspaceId,
-      deletedAt: null,
-      contactId: { not: null },
-      ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
-    },
-    include: { contact: true, company: true },
-    orderBy: { name: "asc" },
-    take: 30,
-  });
+  const where = {
+    workspaceId,
+    deletedAt: null,
+    contactId: inOtherCampaigns ? { not: null, notIn: [...inOtherCampaigns] } : { not: null },
+    ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
+  };
 
-  return deals
-    .filter((d) => d.contact)
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      subtitle: [d.contact!.firstName + (d.contact!.lastName ? ` ${d.contact!.lastName}` : ""), d.company?.name]
-        .filter(Boolean)
-        .join(" · ") || null,
-      contactId: d.contactId!,
-      alreadyInCampaign: inCampaignIds.has(d.contactId!),
-      unavailable: !inCampaignIds.has(d.contactId!) && unavailable.has(d.contactId!),
-    }));
+  const [deals, total] = await Promise.all([
+    db.opportunity.findMany({
+      where,
+      include: { contact: true, company: true },
+      orderBy: { name: "asc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.opportunity.count({ where }),
+  ]);
+
+  return {
+    total,
+    rows: deals
+      .filter((d) => d.contact)
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        subtitle: [d.contact!.firstName + (d.contact!.lastName ? ` ${d.contact!.lastName}` : ""), d.company?.name]
+          .filter(Boolean)
+          .join(" · ") || null,
+        contactId: d.contactId!,
+        alreadyInCampaign: inCampaignIds.has(d.contactId!),
+        unavailable: !inCampaignIds.has(d.contactId!) && unavailable.has(d.contactId!),
+      })),
+  };
 }
 
 // Reactive enrollment: if the campaign has already been started at least once (not
