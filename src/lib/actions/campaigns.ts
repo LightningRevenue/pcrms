@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { assertLimit } from "@/lib/entitlements";
-import { enrollCampaignMembers, backfillStepForExistingMembers } from "@/lib/campaign-runner";
+import { enrollCampaignMembers, backfillStepForExistingMembers, sendCampaignStepNow as runSendCampaignStepNow } from "@/lib/campaign-runner";
 
 export async function listCampaigns() {
   const { workspaceId } = await requireWorkspace();
@@ -635,6 +635,10 @@ export type CampaignProgressMember = {
   email: string | null;
   variantName: string | null;
   currentStep: { order: number; total: number } | null; // null once every step is terminal
+  // The member's next outstanding send — null once every step is terminal, same condition
+  // as currentStep (both come from the same nextPending row).
+  nextRunId: string | null;
+  nextScheduledFor: Date | null;
   opened: boolean;
   openedAt: Date | null;
 };
@@ -729,10 +733,20 @@ export async function getCampaignProgress(campaignId: string): Promise<CampaignP
       email: m.person.email,
       variantName: m.variant?.name ?? null,
       currentStep,
+      nextRunId: nextPending?.id ?? null,
+      nextScheduledFor: nextPending?.scheduledFor ?? null,
       opened: !!firstOpen,
       openedAt: firstOpen?.openedAt ?? null,
     };
   });
 
   return { total: members.length, enrolled, opened, bySteps, byVariant, members: memberRows };
+}
+
+// Lets a rep skip the wait for one specific member's next send from the Progress tab —
+// bypasses the normal stagger/delay entirely, same underlying send as the scheduled tick.
+export async function sendCampaignStepNow(campaignId: string, runId: string) {
+  const { workspaceId } = await requireWorkspace();
+  await runSendCampaignStepNow(runId, workspaceId);
+  revalidatePath(`/marketing/campaigns/${campaignId}`);
 }

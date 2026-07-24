@@ -183,6 +183,34 @@ async function executeCampaignStepRun(run: {
   });
 }
 
+// Runs one due row, handling both outcomes: on success executeCampaignStepRun already
+// marks it "sent"; on failure this marks it "failed" with the error/mailbox attached. Either
+// way, syncs the campaign's status afterward. Shared by the batch cron loop and the
+// single-row "Send now" action (sendCampaignStepNow) — same per-row semantics either way,
+// just a different caller decides which row(s) to run and when.
+async function runOneCampaignStepRun(dueRun: { id: string; workspaceId: string; stepId: string; memberId: string }) {
+  try {
+    await executeCampaignStepRun(dueRun);
+  } catch (err) {
+    await db.campaignStepRun.update({
+      where: { id: dueRun.id, workspaceId: dueRun.workspaceId },
+      data: {
+        status: "failed",
+        executedAt: new Date(),
+        error: err instanceof Error ? err.message : String(err),
+        mailboxAccountId: err instanceof CampaignSendError ? err.mailboxAccountId : undefined,
+      },
+    });
+    throw err;
+  } finally {
+    const member = await db.campaignMember.findUniqueOrThrow({
+      where: { id: dueRun.memberId, workspaceId: dueRun.workspaceId },
+      select: { campaignId: true },
+    });
+    await syncCampaignStatus(member.campaignId, dueRun.workspaceId);
+  }
+}
+
 export async function runDueCampaignSteps() {
   const run = await db.cronJobRun.create({ data: { job: CRON_JOB_NAME, status: "running" } });
 
@@ -196,25 +224,12 @@ export async function runDueCampaignSteps() {
 
     for (const dueRun of due) {
       try {
-        await executeCampaignStepRun(dueRun);
+        await runOneCampaignStepRun(dueRun);
         stepsExecuted += 1;
-      } catch (err) {
-        await db.campaignStepRun.update({
-          where: { id: dueRun.id, workspaceId: dueRun.workspaceId },
-          data: {
-            status: "failed",
-            executedAt: new Date(),
-            error: err instanceof Error ? err.message : String(err),
-            mailboxAccountId: err instanceof CampaignSendError ? err.mailboxAccountId : undefined,
-          },
-        });
+      } catch {
+        // Already marked "failed" and synced inside runOneCampaignStepRun — the batch
+        // loop just keeps going to the next due row instead of aborting the whole tick.
       }
-
-      const member = await db.campaignMember.findUniqueOrThrow({
-        where: { id: dueRun.memberId, workspaceId: dueRun.workspaceId },
-        select: { campaignId: true },
-      });
-      await syncCampaignStatus(member.campaignId, dueRun.workspaceId);
     }
 
     await db.cronJobRun.update({
@@ -233,6 +248,16 @@ export async function runDueCampaignSteps() {
     });
     throw err;
   }
+}
+
+// Lets a rep skip the wait for one specific member's next send — bypasses scheduledFor
+// entirely (no "is it due yet" check), same underlying send path as the scheduled tick.
+// Throws on failure (unlike the batch loop, which swallows per-row errors and moves on)
+// so the caller — a server action wired to a UI button — can surface the real error.
+export async function sendCampaignStepNow(runId: string, workspaceId: string) {
+  const run = await db.campaignStepRun.findUniqueOrThrow({ where: { id: runId, workspaceId } });
+  if (run.status !== "pending") throw new Error("This step has already been sent or is no longer pending.");
+  await runOneCampaignStepRun(run);
 }
 
 // Called from imap-sync.ts whenever a "received" Email lands for a person recognized as a

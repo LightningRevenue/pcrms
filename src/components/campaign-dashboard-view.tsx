@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CheckCircle2, Clock, XCircle, Loader2, MailOpen } from "lucide-react";
-import { getCampaignProgress, type CampaignProgress } from "@/lib/actions/campaigns";
+import { useEffect, useState, useTransition } from "react";
+import { CheckCircle2, Clock, XCircle, Loader2, MailOpen, Send } from "lucide-react";
+import { getCampaignProgress, sendCampaignStepNow, type CampaignProgress } from "@/lib/actions/campaigns";
 
 type Campaign = {
   id: string;
@@ -19,8 +19,29 @@ function relativeTime(date: Date) {
   return `${days}d ago`;
 }
 
+// "sends in Xh Ym" for a future timestamp — the worker tick that actually picks this up
+// runs every 60s, so a live per-second countdown would be more precise than the underlying
+// system; this ticks every 30s (see the interval below), which is plenty.
+function relativeFuture(date: Date) {
+  const seconds = Math.floor((date.getTime() - Date.now()) / 1000);
+  if (seconds <= 0) return "sending soon";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `sends in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (hours < 24) return `sends in ${hours}h${remMinutes > 0 ? ` ${remMinutes}m` : ""}`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return `sends in ${days}d${remHours > 0 ? ` ${remHours}h` : ""}`;
+}
+
 export function CampaignDashboardView({ campaign }: { campaign: Campaign }) {
   const [progress, setProgress] = useState<CampaignProgress | null>(null);
+  // Independent of the 15s data poll — just re-renders the "sends in Xm" labels against
+  // the clock without re-fetching, so the countdown doesn't look frozen between polls.
+  const [, setTick] = useState(0);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     getCampaignProgress(campaign.id).then(setProgress);
@@ -29,8 +50,24 @@ export function CampaignDashboardView({ campaign }: { campaign: Campaign }) {
     const interval = setInterval(() => {
       getCampaignProgress(campaign.id).then(setProgress);
     }, 15_000);
-    return () => clearInterval(interval);
+    const clockInterval = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(clockInterval);
+    };
   }, [campaign.id]);
+
+  function sendNow(runId: string) {
+    setSendingId(runId);
+    startTransition(async () => {
+      try {
+        await sendCampaignStepNow(campaign.id, runId);
+        setProgress(await getCampaignProgress(campaign.id));
+      } finally {
+        setSendingId(null);
+      }
+    });
+  }
 
   const firstStep = progress?.bySteps[0];
   const step1Pct = firstStep && firstStep.pending + firstStep.sent + firstStep.failed + firstStep.skipped > 0
@@ -127,6 +164,20 @@ export function CampaignDashboardView({ campaign }: { campaign: Campaign }) {
                         <span className="text-[12px] text-subtle shrink-0">
                           Step {m.currentStep.order} of {m.currentStep.total}
                         </span>
+                      )}
+                      {m.nextScheduledFor && (
+                        <span className="text-[12px] text-subtle shrink-0">{relativeFuture(m.nextScheduledFor)}</span>
+                      )}
+                      {m.nextRunId && (
+                        <button
+                          onClick={() => sendNow(m.nextRunId!)}
+                          disabled={pending}
+                          title="Send this person's next email now instead of waiting"
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-subtle border border-border hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                        >
+                          <Send size={11} strokeWidth={1.75} />
+                          {sendingId === m.nextRunId ? "Sending…" : "Send now"}
+                        </button>
                       )}
                       {m.opened && (
                         <span className="text-[12px] text-emerald-400 shrink-0 flex items-center gap-1">
