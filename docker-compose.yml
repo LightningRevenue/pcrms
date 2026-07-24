@@ -100,6 +100,10 @@ services:
       # Needed by src/lib/gdpr.ts's buildUnsubscribeToken (HMAC-signs the unsubscribe link
       # every send path attaches) — without it, any step that actually sends an email throws.
       AUTH_SECRET: ${AUTH_SECRET}
+      # Needed to decrypt the MailboxAccount's stored SMTP password (sendViaMailboxAccount
+      # calls decrypt() on it) — campaign sends go out over SMTP, unlike Sequence's Gmail
+      # OAuth path, so this worker (unlike sequence-worker) needs it.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
 
   trash-purge-worker:
     build:
