@@ -26,6 +26,7 @@ import {
   CalendarClock,
   X,
   Eye,
+  Megaphone,
 } from "lucide-react";
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
@@ -35,6 +36,7 @@ import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
 import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
+import { CampaignFilterPicker } from "@/components/campaign-filter-picker";
 import { useViewMode } from "@/lib/view-mode";
 
 export type PersonRow = Person & {
@@ -42,6 +44,7 @@ export type PersonRow = Person & {
   createdBy: User | null;
   owner: User | null;
   importBatch: ImportBatch | null;
+  campaignMembers: { campaign: { id: string; name: string } }[];
 };
 export type PersonCustomField = { id: string; key: string; label: string };
 export type NoteWithAuthor = Note & { createdBy: User | null };
@@ -74,6 +77,7 @@ const STANDARD_COLUMNS = [
   { key: "linkedin", label: "Linkedin", icon: Link2 },
   { key: "lastActivity", label: "Last activity", icon: History },
   { key: "nextActivity", label: "Next activity", icon: CalendarClock },
+  { key: "campaigns", label: "Campaigns", icon: Megaphone },
 ] as const;
 
 type StandardColumnKey = (typeof STANDARD_COLUMNS)[number]["key"];
@@ -149,6 +153,8 @@ function sortValue(
       const t = nextTaskByPerson.get(p.id);
       return t?.dueAt ? t.dueAt.getTime() : null;
     }
+    case "campaigns":
+      return p.campaignMembers.map((m) => m.campaign.name).join(", ") || null;
   }
 }
 
@@ -234,6 +240,15 @@ export function ContactsView({
     const fromUrl = searchParams.get("owner");
     return fromUrl ? new Set([fromUrl]) : new Set();
   });
+  const [campaignFilter, setCampaignFilter] = useState<Set<string>>(new Set());
+
+  const campaignOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const p of people) {
+      for (const m of p.campaignMembers) byId.set(m.campaign.id, m.campaign);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [people]);
 
   function handleSort(key: ColumnKey) {
     setSort((prev) => {
@@ -243,17 +258,20 @@ export function ContactsView({
     });
   }
 
-  const ownerFilteredPeople = useMemo(() => {
-    if (ownerFilter.size === 0) return people;
-    return people.filter((p) => ownerFilter.has(p.ownerId ?? NO_OWNER_KEY));
-  }, [people, ownerFilter]);
+  const filteredPeople = useMemo(() => {
+    return people.filter((p) => {
+      if (ownerFilter.size > 0 && !ownerFilter.has(p.ownerId ?? NO_OWNER_KEY)) return false;
+      if (campaignFilter.size > 0 && !p.campaignMembers.some((m) => campaignFilter.has(m.campaign.id))) return false;
+      return true;
+    });
+  }, [people, ownerFilter, campaignFilter]);
 
   const sortedPeople = useMemo(() => {
-    if (!sort) return ownerFilteredPeople;
-    const withValue = ownerFilteredPeople.map((p) => ({ p, v: sortValue(p, sort.key, lastActivityByPerson, nextTaskByPerson) }));
+    if (!sort) return filteredPeople;
+    const withValue = filteredPeople.map((p) => ({ p, v: sortValue(p, sort.key, lastActivityByPerson, nextTaskByPerson) }));
     withValue.sort((a, b) => compareValues(a.v, b.v, sort.dir));
     return withValue.map((x) => x.p);
-  }, [ownerFilteredPeople, sort, lastActivityByPerson, nextTaskByPerson]);
+  }, [filteredPeople, sort, lastActivityByPerson, nextTaskByPerson]);
 
   function moveContact(id: string, stage: string) {
     setPeople((prev) => prev.map((p) => (p.id === id ? { ...p, stage } : p)));
@@ -308,7 +326,7 @@ export function ContactsView({
           All People
           <span className="text-subtle">
             · {sortedPeople.length}
-            {ownerFilter.size > 0 && ` of ${people.length}`}
+            {(ownerFilter.size > 0 || campaignFilter.size > 0) && ` of ${people.length}`}
           </span>
           <ChevronDown size={13} strokeWidth={1.75} />
         </button>
@@ -336,6 +354,7 @@ export function ContactsView({
           <div className="w-px h-4 bg-border mx-1" />
 
           <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
+          <CampaignFilterPicker campaigns={campaignOptions} selected={campaignFilter} onChange={setCampaignFilter} />
           {view === "list" && (
             <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
           )}
@@ -361,7 +380,7 @@ export function ContactsView({
         ) : (
           <div className="p-6">
             <KanbanView
-              people={ownerFilteredPeople}
+              people={filteredPeople}
               stages={stages}
               onMove={moveContact}
               linkBase={linkBase}
@@ -557,6 +576,8 @@ function cellValue(
       if (!t) return "";
       return t.dueAt ? formatDue(t.dueAt) : t.title;
     }
+    case "campaigns":
+      return p.campaignMembers.map((m) => m.campaign.name).join(", ");
   }
 }
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { EmailTemplate } from "@prisma/client";
 import { Search, Check, X, Megaphone, Users, KanbanSquare, ListChecks, ArrowRight, ArrowLeft, Inbox, Send, Clock, Plus, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { RichTextEditor } from "@/components/rich-text-editor";
+import { CampaignDashboardView } from "@/components/campaign-dashboard-view";
 import { listTemplates } from "@/lib/actions/emails";
 import { listTemplateVariables, type TemplateVariable } from "@/lib/template-variables";
 import {
@@ -30,13 +31,11 @@ import {
   previewCampaignStepBody,
   getCampaignReadiness,
   startCampaign,
-  getCampaignProgress,
   type CampaignPersonRow,
   type CampaignDealRow,
   type CampaignListOption,
   type CampaignReadiness,
   type CampaignStepInput,
-  type CampaignProgress,
 } from "@/lib/actions/campaigns";
 
 type Campaign = {
@@ -57,21 +56,27 @@ type Campaign = {
 };
 
 type Tab = "contacts" | "deals" | "lists";
-type Step = "recipients" | "inboxes" | "variants" | "steps";
+type Step = "recipients" | "inboxes" | "variants" | "steps" | "progress";
 
 export function CampaignBuilderView({ campaign }: { campaign: Campaign }) {
-  const [step, setStep] = useState<Step>("recipients");
+  const [step, setStep] = useState<Step>(campaign.status !== "draft" ? "progress" : "recipients");
 
   return (
     <div className="flex flex-col h-screen">
       <div className="h-12 shrink-0 flex items-center gap-2 px-6 border-b border-border">
         <Megaphone size={14} strokeWidth={1.5} className="text-subtle" />
         <span className="text-[13px] font-medium">{campaign.name}</span>
-        <span className="text-[11px] px-1.5 py-0.5 rounded-full font-medium capitalize bg-muted text-subtle">
-          {campaign.status}
+        <span
+          className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium capitalize ${
+            campaign.status === "active"
+              ? "bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-accent"
+              : "bg-muted text-subtle"
+          }`}
+        >
+          {campaign.status === "active" ? "Sending" : campaign.status}
         </span>
         <div className="flex-1" />
-        <StepIndicator step={step} />
+        <StepIndicator step={step} onStep={setStep} />
       </div>
 
       <div key={step} className="flex-1 min-h-0 animate-step-in">
@@ -85,26 +90,50 @@ export function CampaignBuilderView({ campaign }: { campaign: Campaign }) {
           />
         ) : step === "variants" ? (
           <VariantsStep campaignId={campaign.id} onBack={() => setStep("inboxes")} onNext={() => setStep("steps")} />
+        ) : step === "steps" ? (
+          <StepsStep
+            campaignId={campaign.id}
+            campaignStatus={campaign.status}
+            onBack={() => setStep("variants")}
+            onStarted={() => setStep("progress")}
+          />
         ) : (
-          <StepsStep campaignId={campaign.id} campaignStatus={campaign.status} onBack={() => setStep("variants")} />
+          <ProgressStep campaignId={campaign.id} />
         )}
       </div>
     </div>
   );
 }
 
-function StepIndicator({ step }: { step: Step }) {
+// All 5 tabs are always clickable — once a campaign leaves "draft", Recipients/Inboxes/
+// Variants/Steps become live-editing tools instead of a locked linear wizard.
+function StepIndicator({ step, onStep }: { step: Step; onStep: (step: Step) => void }) {
+  const items: { key: Step; label: string }[] = [
+    { key: "recipients", label: "1. Recipients" },
+    { key: "inboxes", label: "2. Inboxes" },
+    { key: "variants", label: "3. Variants" },
+    { key: "steps", label: "4. Steps" },
+    { key: "progress", label: "5. Progress" },
+  ];
   return (
     <div className="flex items-center gap-2 text-[12px]">
-      <span className={step === "recipients" ? "text-foreground font-medium" : "text-subtle"}>1. Recipients</span>
-      <span className="text-subtle">→</span>
-      <span className={step === "inboxes" ? "text-foreground font-medium" : "text-subtle"}>2. Inboxes</span>
-      <span className="text-subtle">→</span>
-      <span className={step === "variants" ? "text-foreground font-medium" : "text-subtle"}>3. Variants</span>
-      <span className="text-subtle">→</span>
-      <span className={step === "steps" ? "text-foreground font-medium" : "text-subtle"}>4. Steps</span>
+      {items.map((item, i) => (
+        <span key={item.key} className="flex items-center gap-2">
+          {i > 0 && <span className="text-subtle">→</span>}
+          <button
+            onClick={() => onStep(item.key)}
+            className={step === item.key ? "text-foreground font-medium" : "text-subtle hover:text-foreground transition-colors"}
+          >
+            {item.label}
+          </button>
+        </span>
+      ))}
     </div>
   );
+}
+
+function ProgressStep({ campaignId }: { campaignId: string }) {
+  return <CampaignDashboardView campaign={{ id: campaignId }} />;
 }
 
 function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () => void }) {
@@ -281,7 +310,7 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
                       key={r.id}
                       onClick={() => toggleContact(r)}
                       disabled={pending || r.unavailable}
-                      title={r.unavailable ? "Already enrolled in a sequence or campaign" : undefined}
+                      title={r.unavailable ? "Already enrolled in an active sequence" : undefined}
                       className="w-full flex items-center gap-3 px-6 py-2.5 hover:bg-muted/40 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Checkbox checked={r.alreadyInCampaign} />
@@ -297,7 +326,7 @@ function RecipientsStep({ campaign, onNext }: { campaign: Campaign; onNext: () =
                       key={r.id}
                       onClick={() => toggleDeal(r)}
                       disabled={pending || r.unavailable}
-                      title={r.unavailable ? "Contact already enrolled in a sequence or campaign" : undefined}
+                      title={r.unavailable ? "Contact already enrolled in an active sequence" : undefined}
                       className="w-full flex items-center gap-3 px-6 py-2.5 hover:bg-muted/40 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Checkbox checked={r.alreadyInCampaign} />
@@ -636,17 +665,18 @@ function StepsStep({
   campaignId,
   campaignStatus,
   onBack,
+  onStarted,
 }: {
   campaignId: string;
   campaignStatus: string;
   onBack: () => void;
+  onStarted: () => void;
 }) {
   const [steps, setSteps] = useState<StepRow[]>([]);
   const [variants, setVariants] = useState<VariantRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [started, setStarted] = useState(campaignStatus !== "draft");
   const [pending, startTransition] = useTransition();
 
   function refresh() {
@@ -673,10 +703,6 @@ function StepsStep({
       await deleteCampaignStep(id);
       refresh();
     });
-  }
-
-  if (started) {
-    return <CampaignProgressSummary campaignId={campaignId} />;
   }
 
   return (
@@ -743,14 +769,16 @@ function StepsStep({
           Back
         </button>
         <div className="flex-1" />
-        <button
-          onClick={() => setConfirming(true)}
-          disabled={steps.length === 0}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Finish
-          <Send size={14} strokeWidth={2} />
-        </button>
+        {campaignStatus === "draft" && (
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={steps.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Finish
+            <Send size={14} strokeWidth={2} />
+          </button>
+        )}
       </div>
 
       {confirming && (
@@ -759,7 +787,7 @@ function StepsStep({
           onCancel={() => setConfirming(false)}
           onStarted={() => {
             setConfirming(false);
-            setStarted(true);
+            onStarted();
           }}
         />
       )}
@@ -1074,35 +1102,6 @@ function StartCampaignModal({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function CampaignProgressSummary({ campaignId }: { campaignId: string }) {
-  const [progress, setProgress] = useState<CampaignProgress | null>(null);
-
-  useEffect(() => {
-    getCampaignProgress(campaignId).then(setProgress);
-  }, [campaignId]);
-
-  const pending = progress?.bySteps.reduce((sum, s) => sum + s.pending, 0) ?? 0;
-  const sent = progress?.bySteps.reduce((sum, s) => sum + s.sent, 0) ?? 0;
-  const failed = progress?.bySteps.reduce((sum, s) => sum + s.failed, 0) ?? 0;
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-center px-6">
-      <Send size={24} strokeWidth={1.5} className="text-accent" />
-      <p className="text-[15px] font-medium mt-3">Campaign started</p>
-      {progress && (
-        <p className="text-[13px] text-subtle mt-1">
-          {sent} sent · {pending} pending
-          {failed > 0 ? ` · ${failed} failed` : ""} · {progress.enrolled} of {progress.total} enrolled
-        </p>
-      )}
-      <p className="text-[12px] text-subtle mt-3 max-w-sm">
-        Sends are trickling out in the background. New recipients added to this campaign are enrolled and sent to
-        automatically — no need to restart. See full progress on the campaign dashboard.
-      </p>
     </div>
   );
 }

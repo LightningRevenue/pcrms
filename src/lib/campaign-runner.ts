@@ -64,6 +64,43 @@ export async function enrollCampaignMembers(memberIds: string[], workspaceId: st
   }
 }
 
+// Called from addCampaignStep when a step is added to a non-draft campaign: gives every
+// already-enrolled member a CampaignStepRun for the new step too, computed from their own
+// enrolledAt (not "now") — same cumulative-delay formula as enrollCampaignMember, so a step
+// inserted at "+2 days" still means 2 days after each member's original enrollment.
+// Members who already replied during the campaign are skipped — the only thing that ever
+// sets a run to "skipped" is cancelPendingCampaignStepsOnReply, so "has a skipped run" is a
+// reliable proxy for "has replied" without needing a new field.
+export async function backfillStepForExistingMembers(stepId: string, campaignId: string, workspaceId: string) {
+  const step = await db.campaignStep.findUniqueOrThrow({ where: { id: stepId, workspaceId } });
+
+  const members = await db.campaignMember.findMany({
+    where: {
+      workspaceId,
+      campaignId,
+      enrolledAt: { not: null },
+      runs: { none: { status: "skipped" } },
+    },
+    select: { id: true, enrolledAt: true },
+  });
+  if (members.length === 0) return;
+
+  const now = new Date();
+  await db.campaignStepRun.createMany({
+    data: members.map((member) => {
+      const target = new Date(member.enrolledAt!.getTime() + (step.delayDays * 24 + step.delayHours) * 3600 * 1000);
+      return {
+        workspaceId,
+        memberId: member.id,
+        stepId,
+        scheduledFor: target < now ? now : target,
+      };
+    }),
+  });
+
+  await syncCampaignStatus(campaignId, workspaceId);
+}
+
 // Round robin over the campaign's *currently* selected mailboxes, computed at execution
 // time rather than snapshotted per-batch, so a late-added member's send uses whichever
 // mailboxes are selected now, not a stale list from the original startCampaign call.

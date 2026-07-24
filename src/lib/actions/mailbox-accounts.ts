@@ -260,7 +260,10 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     interpolateForPerson(input.bodyHtml, input.personId, input.workspaceId),
     buildUnsubscribeUrl(input.personId),
   ]);
-  const bodyHtml = (await appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl, input.workspaceId)) + (input.trackingPixelHtml ?? "");
+  // Pixel is appended only to the outbound payload below, never persisted — otherwise the
+  // CRM re-firing this same bodyHtml via dangerouslySetInnerHTML (inbox, contact/deal
+  // threads) would create a bogus "open" every time a workspace user views the email.
+  const bodyHtml = await appendUnsubscribeFooter(interpolatedBody, unsubscribeUrl, input.workspaceId);
 
   const bcc = input.bcc ?? [];
 
@@ -276,7 +279,7 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     to: input.to,
     bcc: bcc.length ? bcc : undefined,
     subject,
-    html: bodyHtml,
+    html: bodyHtml + (input.trackingPixelHtml ?? ""),
     inReplyTo: replyTo?.messageIdHeader ?? undefined,
     references: replyTo?.messageIdHeader ?? undefined,
     headers: unsubscribeHeaders(unsubscribeUrl),

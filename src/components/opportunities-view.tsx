@@ -15,10 +15,12 @@ import {
   CalendarDays,
   Building2,
   User as UserIcon,
+  Megaphone,
 } from "lucide-react";
 import { moveOpportunityStage } from "@/lib/actions/opportunities";
 import { CreateDealPanel } from "@/components/create-deal-panel";
 import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
+import { CampaignFilterPicker } from "@/components/campaign-filter-picker";
 import { useContactHref } from "@/lib/view-mode";
 
 export type OpportunityStage = string;
@@ -28,6 +30,9 @@ export type OpportunityRow = Opportunity & {
   contact: Person | null;
   owner: User | null;
   createdBy: User | null;
+  // The primary contact's full campaign list — a deal's "Campaigns" is its contact's
+  // campaign involvement, not just campaigns added via this specific deal.
+  campaigns: { id: string; name: string }[];
 };
 
 const OUTCOME_BADGE: Record<string, string> = {
@@ -102,12 +107,24 @@ export function OpportunitiesView({
     const fromUrl = searchParams.get("owner");
     return fromUrl ? new Set([fromUrl]) : new Set();
   });
+  const [campaignFilter, setCampaignFilter] = useState<Set<string>>(new Set());
   const stageByLabel = new Map(stages.map((s) => [s.label, s]));
 
+  const campaignOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const o of opportunities) {
+      for (const c of o.campaigns) byId.set(c.id, c);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [opportunities]);
+
   const filteredOpportunities = useMemo(() => {
-    if (ownerFilter.size === 0) return opportunities;
-    return opportunities.filter((o) => ownerFilter.has(o.ownerId ?? NO_OWNER_KEY));
-  }, [opportunities, ownerFilter]);
+    return opportunities.filter((o) => {
+      if (ownerFilter.size > 0 && !ownerFilter.has(o.ownerId ?? NO_OWNER_KEY)) return false;
+      if (campaignFilter.size > 0 && !o.campaigns.some((c) => campaignFilter.has(c.id))) return false;
+      return true;
+    });
+  }, [opportunities, ownerFilter, campaignFilter]);
 
   function moveOpportunity(id: string, stage: OpportunityStage) {
     const target = stageByLabel.get(stage);
@@ -148,13 +165,14 @@ export function OpportunitiesView({
           By Stage
           <span className="text-subtle">
             · {filteredOpportunities.length}
-            {ownerFilter.size > 0 && ` of ${opportunities.length}`}
+            {(ownerFilter.size > 0 || campaignFilter.size > 0) && ` of ${opportunities.length}`}
           </span>
           <ChevronDown size={13} strokeWidth={1.75} />
         </button>
 
         <div className="flex items-center gap-1">
           <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
+          <CampaignFilterPicker campaigns={campaignOptions} selected={campaignFilter} onChange={setCampaignFilter} />
           <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
             <ArrowUpDown size={14} strokeWidth={1.75} />
             Sort
@@ -254,7 +272,7 @@ function KanbanBoard({
                       <CalendarDays size={12} strokeWidth={1.75} className="shrink-0" />
                       <span className="truncate">{formatCloseDate(o.closeDate)}</span>
                     </div>
-                    {(o.company || o.contact) && (
+                    {(o.company || o.contact || o.campaigns.length > 0) && (
                       <div className="border border-border rounded-md divide-y divide-border overflow-hidden">
                         {o.company && (
                           <Link
@@ -277,6 +295,12 @@ function KanbanBoard({
                             <UserIcon size={12} strokeWidth={1.75} className="shrink-0" />
                             <span className="truncate">{contactName(o.contact)}</span>
                           </Link>
+                        )}
+                        {o.campaigns.length > 0 && (
+                          <div className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] text-subtle truncate">
+                            <Megaphone size={12} strokeWidth={1.75} className="shrink-0" />
+                            <span className="truncate">{o.campaigns.map((c) => c.name).join(", ")}</span>
+                          </div>
                         )}
                       </div>
                     )}

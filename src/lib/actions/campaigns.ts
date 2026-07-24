@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { assertLimit } from "@/lib/entitlements";
-import { enrollCampaignMembers } from "@/lib/campaign-runner";
+import { enrollCampaignMembers, backfillStepForExistingMembers } from "@/lib/campaign-runner";
 
 export async function listCampaigns() {
   const { workspaceId } = await requireWorkspace();
@@ -60,24 +60,15 @@ export async function deleteCampaign(id: string) {
   revalidatePath("/marketing/campaigns");
 }
 
-// A person is off-limits for a new bulk send if they're already being worked by any
-// active flow — an in-progress Sequence, or membership in another non-draft Campaign.
+// A person is off-limits for a new bulk send if they're already being worked by an
+// in-progress Sequence — campaign-to-campaign membership is not exclusive, a person can be
+// enrolled in multiple campaigns at once.
 async function findUnavailablePersonIds(workspaceId: string): Promise<Set<string>> {
-  const [sequenceEnrollments, campaignMembers] = await Promise.all([
-    db.sequenceEnrollment.findMany({
-      where: { workspaceId, status: "active" },
-      select: { personId: true },
-    }),
-    db.campaignMember.findMany({
-      where: { workspaceId, campaign: { status: { in: ["active", "sent"] } } },
-      select: { personId: true },
-    }),
-  ]);
-
-  return new Set([
-    ...sequenceEnrollments.map((e) => e.personId),
-    ...campaignMembers.map((m) => m.personId),
-  ]);
+  const sequenceEnrollments = await db.sequenceEnrollment.findMany({
+    where: { workspaceId, status: "active" },
+    select: { personId: true },
+  });
+  return new Set(sequenceEnrollments.map((e) => e.personId));
 }
 
 export type CampaignPersonRow = {
@@ -372,12 +363,11 @@ export async function renameCampaignVariant(variantId: string, name: string) {
 
 export async function deleteCampaignVariant(variantId: string) {
   const { workspaceId } = await requireWorkspace();
-  const variant = await db.campaignVariant.findUniqueOrThrow({
-    where: { id: variantId, workspaceId },
-    include: { campaign: true },
-  });
-  if (variant.campaign.status !== "draft") {
-    throw new Error("Can't remove a variant after the campaign has started — members are already assigned to it.");
+  const variant = await db.campaignVariant.findUniqueOrThrow({ where: { id: variantId, workspaceId } });
+
+  const memberCount = await db.campaignMember.count({ where: { workspaceId, variantId } });
+  if (memberCount > 0) {
+    throw new Error("Can't remove a variant members are already assigned to.");
   }
 
   await db.campaignVariant.delete({ where: { id: variantId, workspaceId } });
@@ -424,13 +414,27 @@ export async function addCampaignStep(campaignId: string, input: CampaignStepInp
     });
   }
 
+  // A step added to a campaign that's already running backfills existing members too,
+  // skipping anyone who already replied — see backfillStepForExistingMembers for the exact
+  // rule. On a still-draft campaign this is a no-op (no member has enrolledAt set yet).
+  await backfillStepForExistingMembers(step.id, campaignId, workspaceId);
+
   revalidatePath(`/marketing/campaigns/${campaignId}`);
   return step;
 }
 
 export async function deleteCampaignStep(stepId: string) {
   const { workspaceId } = await requireWorkspace();
-  const step = await db.campaignStep.delete({ where: { id: stepId, workspaceId } });
+  const step = await db.campaignStep.findUniqueOrThrow({ where: { id: stepId, workspaceId } });
+
+  const sentCount = await db.campaignStepRun.count({
+    where: { workspaceId, stepId, status: { in: ["sent", "failed"] } },
+  });
+  if (sentCount > 0) {
+    throw new Error("Can't remove a step that's already been sent to some recipients.");
+  }
+
+  await db.campaignStep.delete({ where: { id: stepId, workspaceId } });
   revalidatePath(`/marketing/campaigns/${step.campaignId}`);
 }
 

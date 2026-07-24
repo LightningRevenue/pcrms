@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { OpportunityRow } from "@/components/opportunities-view";
-import { ArrowUpRight, DollarSign, Target, Building2, User as UserIcon, CalendarDays } from "lucide-react";
+import { ArrowUpRight, DollarSign, Target, Building2, User as UserIcon, CalendarDays, Megaphone } from "lucide-react";
 import { useContactHref } from "@/lib/view-mode";
 
 const OUTCOME_BADGE: Record<string, string> = {
@@ -26,7 +26,7 @@ function formatCloseDate(date: Date | null) {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-const GRID = "220px 100px 120px 160px 160px 180px 160px";
+const GRID = "220px 100px 120px 160px 160px 180px 160px 200px";
 
 export function ListDealsView({ opportunities }: { opportunities: OpportunityRow[] }) {
   const contactHref = useContactHref();
@@ -57,6 +57,10 @@ export function ListDealsView({ opportunities }: { opportunities: OpportunityRow
         <span className="flex items-center gap-1.5 pl-1">
           <CalendarDays size={13} strokeWidth={1.75} />
           Close date
+        </span>
+        <span className="flex items-center gap-1.5 pl-1">
+          <Megaphone size={13} strokeWidth={1.75} />
+          Campaigns
         </span>
       </div>
       <div className="divide-y divide-border">
@@ -102,6 +106,9 @@ export function ListDealsView({ opportunities }: { opportunities: OpportunityRow
                 )}
               </span>
               <span className="text-[13px] text-subtle truncate pl-1 pr-2">{formatCloseDate(o.closeDate)}</span>
+              <span className="text-[13px] text-subtle truncate pl-1 pr-2">
+                {o.campaigns.length > 0 ? o.campaigns.map((c) => c.name).join(", ") : "—"}
+              </span>
             </div>
           );
         })}

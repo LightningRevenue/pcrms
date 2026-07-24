@@ -1,15 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Megaphone, CheckCircle2, Clock, XCircle, Loader2, Inbox, GitBranch, MailOpen } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, Loader2, MailOpen } from "lucide-react";
 import { getCampaignProgress, type CampaignProgress } from "@/lib/actions/campaigns";
 
 type Campaign = {
   id: string;
-  name: string;
-  status: string;
-  steps: { id: string }[];
-  mailboxes: { mailboxAccount: { label: string } }[];
 };
 
 function relativeTime(date: Date) {
@@ -42,30 +38,7 @@ export function CampaignDashboardView({ campaign }: { campaign: Campaign }) {
     : 0;
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="h-12 shrink-0 flex items-center gap-2 px-6 border-b border-border">
-        <Megaphone size={14} strokeWidth={1.5} className="text-subtle" />
-        <span className="text-[13px] font-medium">{campaign.name}</span>
-        <span
-          className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium capitalize ${
-            campaign.status === "active"
-              ? "bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-accent"
-              : "bg-muted text-subtle"
-          }`}
-        >
-          {campaign.status === "active" ? "Sending" : campaign.status}
-        </span>
-        <div className="flex-1" />
-        <span className="flex items-center gap-1.5 text-[12px] text-subtle">
-          <GitBranch size={13} strokeWidth={1.5} />
-          {campaign.steps.length} step{campaign.steps.length === 1 ? "" : "s"}
-        </span>
-        <span className="flex items-center gap-1.5 text-[12px] text-subtle">
-          <Inbox size={13} strokeWidth={1.5} />
-          {campaign.mailboxes.map((m) => m.mailboxAccount.label).join(", ") || "No inboxes"}
-        </span>
-      </div>
-
+    <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto w-full px-6 py-6">
           <div className="flex items-center gap-2 mb-2">

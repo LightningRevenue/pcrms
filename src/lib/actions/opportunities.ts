@@ -168,19 +168,40 @@ export async function listOpportunitiesForCompany(companyId: string) {
 
 export async function listOpportunities() {
   const ctx = await requireWorkspace();
-  return db.opportunity.findMany({
+  const opportunities = await db.opportunity.findMany({
     where: { workspaceId: ctx.workspaceId, ...opportunityVisibilityFilter(ctx) },
-    include: { company: true, contact: true, owner: true, createdBy: true },
+    include: {
+      company: true,
+      contact: { include: { campaignMembers: { include: { campaign: true } } } },
+      owner: true,
+      createdBy: true,
+    },
     orderBy: { createdAt: "desc" },
   });
+  // A deal's "Campaigns" is its primary contact's full campaign involvement, flattened onto
+  // the row — OpportunityRow doesn't nest it under contact since Kanban cards/list rows
+  // render it independently of whether a contact pill is also shown.
+  return opportunities.map(({ contact, ...o }) => ({
+    ...o,
+    contact,
+    campaigns: contact?.campaignMembers.map((m) => m.campaign) ?? [],
+  }));
 }
 
 export async function getOpportunity(id: string) {
   const ctx = await requireWorkspace();
-  return db.opportunity.findUnique({
+  const opportunity = await db.opportunity.findUnique({
     where: { id, workspaceId: ctx.workspaceId, ...opportunityVisibilityFilter(ctx) },
-    include: { company: true, contact: true, owner: true, createdBy: true },
+    include: {
+      company: true,
+      contact: { include: { campaignMembers: { include: { campaign: true } } } },
+      owner: true,
+      createdBy: true,
+    },
   });
+  if (!opportunity) return null;
+  const { contact, ...o } = opportunity;
+  return { ...o, contact, campaigns: contact?.campaignMembers.map((m) => m.campaign) ?? [] };
 }
 
 export async function moveOpportunityStage(id: string, stage: OpportunityStage) {

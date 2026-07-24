@@ -61,18 +61,36 @@ export async function getListPeople(entityIds: string[]) {
   const ctx = await requireWorkspace();
   return db.person.findMany({
     where: { workspaceId: ctx.workspaceId, id: { in: entityIds }, ...personVisibilityFilter(ctx) },
-    include: { company: true, createdBy: true, owner: true, importBatch: true },
+    include: {
+      company: true,
+      createdBy: true,
+      owner: true,
+      importBatch: true,
+      campaignMembers: { include: { campaign: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getListOpportunities(entityIds: string[]) {
   const ctx = await requireWorkspace();
-  return db.opportunity.findMany({
+  const opportunities = await db.opportunity.findMany({
     where: { workspaceId: ctx.workspaceId, id: { in: entityIds }, ...opportunityVisibilityFilter(ctx) },
-    include: { company: true, contact: true, owner: true, createdBy: true },
+    include: {
+      company: true,
+      contact: { include: { campaignMembers: { include: { campaign: true } } } },
+      owner: true,
+      createdBy: true,
+    },
     orderBy: { createdAt: "desc" },
   });
+  // Flatten the contact's campaign involvement onto the row — see listOpportunities in
+  // opportunities.ts for the same shape/reasoning.
+  return opportunities.map(({ contact, ...o }) => ({
+    ...o,
+    contact,
+    campaigns: contact?.campaignMembers.map((m) => m.campaign) ?? [],
+  }));
 }
 
 export async function createList(name: string, entityType: ListEntityType) {

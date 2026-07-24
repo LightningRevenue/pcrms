@@ -13,7 +13,13 @@ export default async function ContactsPage() {
   const people = await db.person.findMany({
     where: { workspaceId, ...personVisibilityFilter(ctx) },
     orderBy: { createdAt: "desc" },
-    include: { company: true, createdBy: true, owner: true, importBatch: true },
+    include: {
+      company: true,
+      createdBy: true,
+      owner: true,
+      importBatch: true,
+      campaignMembers: { include: { campaign: true } },
+    },
   });
   const personIds = people.map((p) => p.id);
 
