@@ -79,6 +79,19 @@ export const ENTITLEMENTS = {
     type: "count",
     measure: (workspaceId) => db.campaign.count({ where: { workspaceId } }),
   },
+  campaign_steps_count: {
+    key: "campaign_steps_count",
+    label: "Campaign steps (per campaign)",
+    type: "count",
+    // Whole-workspace total, not per-campaign — mirrors sequence_steps_count's same caveat.
+    measure: (workspaceId) => db.campaignStep.count({ where: { workspaceId } }),
+  },
+  campaign_variants_count: {
+    key: "campaign_variants_count",
+    label: "Campaign variants (per campaign)",
+    type: "count",
+    measure: (workspaceId) => db.campaignVariant.count({ where: { workspaceId } }),
+  },
   sequences_count: {
     key: "sequences_count",
     label: "Sequences",
@@ -159,7 +172,6 @@ export const ENTITLEMENTS = {
   playbooks_feature: { key: "playbooks_feature", label: "Playbooks", type: "feature" },
   dashboards_feature: { key: "dashboards_feature", label: "Dashboards / analytics", type: "feature" },
   lists_feature: { key: "lists_feature", label: "Lists", type: "feature" },
-  custom_objects_feature: { key: "custom_objects_feature", label: "Custom objects", type: "feature" },
   // Premium add-on: GDPR request tracking (Settings > GDPR) and unsubscribe enforcement on
   // every send path. Unlike the other feature gates above, this one should ship *disabled* by
   // default on existing plans (set an explicit PlanLimit row with value 0) rather than relying

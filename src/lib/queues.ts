@@ -1,12 +1,12 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
-import { campaignQueue } from "@/lib/campaign-queue";
 import { importQueue } from "@/lib/import-queue";
 
 // Central registry of every BullMQ queue in the app, for the /admin/queues dashboard.
-// gmail-reply-sync / imap-mailbox-poll / sequence-step-runner only ever had a Queue instance
-// created inline inside their worker file (never exported) — reusing the same Redis
-// connection here just to read job state, same as redis.ts's singleton pattern.
+// gmail-reply-sync / imap-mailbox-poll / sequence-step-runner / campaign-step-runner only
+// ever had a Queue instance created inline inside their worker file (never exported) —
+// reusing the same Redis connection here just to read job state, same as redis.ts's
+// singleton pattern.
 const globalForQueues = globalThis as unknown as { adminQueues?: Record<string, Queue> };
 
 const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
@@ -17,7 +17,7 @@ export const QUEUE_NAMES = [
   "gmail-reply-sync",
   "imap-mailbox-poll",
   "sequence-step-runner",
-  "campaign-send",
+  "campaign-step-runner",
   "csv-import",
 ] as const;
 
@@ -28,7 +28,7 @@ const registry: Record<string, Queue> =
     "gmail-reply-sync": new Queue("gmail-reply-sync", { connection }),
     "imap-mailbox-poll": new Queue("imap-mailbox-poll", { connection }),
     "sequence-step-runner": new Queue("sequence-step-runner", { connection }),
-    "campaign-send": campaignQueue,
+    "campaign-step-runner": new Queue("campaign-step-runner", { connection }),
     "csv-import": importQueue,
   };
 

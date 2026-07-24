@@ -1,23 +1,29 @@
 import "dotenv/config";
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
-import { runCampaignSendJob } from "@/lib/campaign-runner";
-import { CAMPAIGN_JOB_NAME, type CampaignSendJobData } from "@/lib/campaign-queue";
+import { runDueCampaignSteps } from "@/lib/campaign-runner";
+
+const JOB_NAME = "campaign-step-runner";
+const REPEAT_EVERY_MS = 60 * 1000;
 
 const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
   maxRetriesPerRequest: null,
 });
 
+const queue = new Queue(JOB_NAME, { connection });
+
 async function main() {
-  new Worker<CampaignSendJobData>(
-    CAMPAIGN_JOB_NAME,
-    async (job) => {
-      await runCampaignSendJob(job.data);
+  await queue.upsertJobScheduler(JOB_NAME, { every: REPEAT_EVERY_MS }, { name: JOB_NAME });
+
+  new Worker(
+    JOB_NAME,
+    async () => {
+      await runDueCampaignSteps();
     },
-    { connection, lockDuration: 60_000 }
+    { connection, lockDuration: 90_000 }
   );
 
-  console.log("campaign-worker started, waiting for paced send jobs");
+  console.log(`campaign-worker started, checking due steps every ${REPEAT_EVERY_MS / 1000}s`);
 }
 
 main().catch((err) => {

@@ -4,6 +4,7 @@ import { publishNotification } from "@/lib/redis";
 import { sendReplyEmailNotification } from "@/lib/reply-notification";
 import { decrypt } from "@/lib/encryption";
 import { cancelActiveEmailStepsOnReply } from "@/lib/sequence-runner";
+import { cancelPendingCampaignStepsOnReply } from "@/lib/campaign-runner";
 import type { MailboxAccount } from "@prisma/client";
 
 function findBodyPart(node: MessageStructureObject, wantType: "text/html" | "text/plain"): MessageStructureObject | null {
@@ -116,6 +117,7 @@ async function saveMessage(
 
   if (person) {
     await cancelActiveEmailStepsOnReply(person.id, account.workspaceId);
+    await cancelPendingCampaignStepsOnReply(person.id, account.workspaceId);
   }
 
   if (account.createdById) {

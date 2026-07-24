@@ -24,7 +24,7 @@ export async function listCampaignPerformance(): Promise<CampaignSummary[]> {
     include: {
       members: {
         select: {
-          sendStatus: true,
+          runs: { select: { status: true } },
           emails: { select: { opens: { select: { id: true }, take: 1 } } },
         },
       },
@@ -32,8 +32,11 @@ export async function listCampaignPerformance(): Promise<CampaignSummary[]> {
   });
 
   return campaigns.map((c) => {
-    const sentCount = c.members.filter((m) => m.sendStatus === "sent").length;
-    const failedCount = c.members.filter((m) => m.sendStatus === "failed").length;
+    // A member counts as "sent"/"failed" if any of their per-step runs resolved that way —
+    // a multi-step campaign can have both (step 1 sent, step 2 failed); sent takes priority
+    // for this summary rollup since it reflects real outbound reach either way.
+    const sentCount = c.members.filter((m) => m.runs.some((r) => r.status === "sent")).length;
+    const failedCount = c.members.filter((m) => m.runs.length > 0 && m.runs.every((r) => r.status === "failed")).length;
     const openedCount = c.members.filter((m) => m.emails.some((e) => e.opens.length > 0)).length;
     return {
       id: c.id,
@@ -66,17 +69,23 @@ export async function getCampaignMembers(campaignId: string, filter?: "opened" |
     orderBy: { addedAt: "desc" },
     include: {
       person: { select: { firstName: true, lastName: true } },
+      runs: { select: { status: true } },
       emails: { select: { opens: { select: { id: true } } } },
     },
   });
 
   const rows = members.map((m) => {
     const openCount = m.emails.reduce((sum, e) => sum + e.opens.length, 0);
+    const sendStatus = m.runs.some((r) => r.status === "sent")
+      ? "sent"
+      : m.runs.length > 0 && m.runs.every((r) => r.status === "failed")
+        ? "failed"
+        : "pending";
     return {
       id: m.id,
       personId: m.personId,
       personName: [m.person.firstName, m.person.lastName].filter(Boolean).join(" ") || "Untitled",
-      sendStatus: m.sendStatus,
+      sendStatus,
       opened: openCount > 0,
       openCount,
     };

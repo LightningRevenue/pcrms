@@ -3,12 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
-import { campaignQueue } from "@/lib/campaign-queue";
 import { assertLimit } from "@/lib/entitlements";
-
-// Random pace between sends so a bulk campaign doesn't look/behave like a mail blast.
-const MIN_SEND_GAP_MS = 30_000;
-const MAX_SEND_GAP_MS = 60_000;
+import { enrollCampaignMembers } from "@/lib/campaign-runner";
 
 export async function listCampaigns() {
   const { workspaceId } = await requireWorkspace();
@@ -25,14 +21,20 @@ export async function getCampaign(id: string) {
     where: { id, workspaceId },
     include: {
       members: {
-        include: { person: { include: { company: true } } },
+        include: { person: { include: { company: true } }, variant: true },
         orderBy: { addedAt: "asc" },
       },
       mailboxes: {
         include: { mailboxAccount: true },
         orderBy: { addedAt: "asc" },
       },
-      template: true,
+      steps: {
+        include: { bodies: true },
+        orderBy: { order: "asc" },
+      },
+      variants: {
+        orderBy: { order: "asc" },
+      },
     },
   });
 }
@@ -167,25 +169,36 @@ export async function searchDealsForCampaign(campaignId: string, query: string):
     }));
 }
 
+// Reactive enrollment: if the campaign has already been started at least once (not
+// "draft"), a newly-added member gets its CampaignStepRuns scheduled immediately instead
+// of waiting for a manual restart — see enrollCampaignMember in campaign-runner.ts.
+async function reactivelyEnroll(campaignId: string, workspaceId: string, memberIds: string[]) {
+  const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId }, select: { status: true } });
+  if (campaign.status === "draft") return;
+  await enrollCampaignMembers(memberIds, workspaceId);
+}
+
 export async function addContactToCampaign(campaignId: string, personId: string) {
   const { userId, workspaceId } = await requireWorkspace();
 
-  await db.campaignMember.upsert({
+  const member = await db.campaignMember.upsert({
     where: { campaignId_personId: { campaignId, personId } },
     create: { workspaceId, campaignId, personId, addedById: userId },
     update: {},
   });
+  await reactivelyEnroll(campaignId, workspaceId, [member.id]);
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
 export async function addDealToCampaign(campaignId: string, opportunityId: string, personId: string) {
   const { userId, workspaceId } = await requireWorkspace();
 
-  await db.campaignMember.upsert({
+  const member = await db.campaignMember.upsert({
     where: { campaignId_personId: { campaignId, personId } },
     create: { workspaceId, campaignId, personId, viaOpportunityId: opportunityId, addedById: userId },
     update: {},
   });
+  await reactivelyEnroll(campaignId, workspaceId, [member.id]);
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
@@ -196,6 +209,8 @@ export async function addManyContactsToCampaign(campaignId: string, personIds: s
     data: personIds.map((personId) => ({ workspaceId, campaignId, personId, addedById: userId })),
     skipDuplicates: true,
   });
+  const members = await db.campaignMember.findMany({ where: { workspaceId, campaignId, personId: { in: personIds } }, select: { id: true } });
+  await reactivelyEnroll(campaignId, workspaceId, members.map((m) => m.id));
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
@@ -215,6 +230,11 @@ export async function addManyDealsToCampaign(
     })),
     skipDuplicates: true,
   });
+  const members = await db.campaignMember.findMany({
+    where: { workspaceId, campaignId, personId: { in: deals.map((d) => d.personId) } },
+    select: { id: true },
+  });
+  await reactivelyEnroll(campaignId, workspaceId, members.map((m) => m.id));
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
@@ -305,55 +325,173 @@ export async function setCampaignMailboxes(campaignId: string, mailboxAccountIds
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
-export type CampaignTemplateOption = {
-  id: string;
-  name: string;
-  subject: string;
-  bodyHtml: string;
-  selected: boolean;
-};
+// ---- Variants (A/N test arms) ----
 
-export async function listEmailTemplatesForCampaign(campaignId: string): Promise<CampaignTemplateOption[]> {
+export async function listCampaignVariants(campaignId: string) {
   const { workspaceId } = await requireWorkspace();
-  const [templates, campaign] = await Promise.all([
-    db.emailTemplate.findMany({ where: { workspaceId }, orderBy: { name: "asc" } }),
-    db.campaign.findUniqueOrThrow({ where: { id: campaignId, workspaceId } }),
-  ]);
-
-  return templates.map((t) => ({
-    id: t.id,
-    name: t.name,
-    subject: t.subject,
-    bodyHtml: t.bodyHtml,
-    selected: t.id === campaign.templateId,
-  }));
+  return db.campaignVariant.findMany({ where: { workspaceId, campaignId }, orderBy: { order: "asc" } });
 }
 
-export async function setCampaignTemplate(campaignId: string, templateId: string | null) {
+export async function addCampaignVariant(campaignId: string, name: string) {
   const { workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "campaign_variants_count");
 
-  await db.campaign.update({ where: { id: campaignId, workspaceId }, data: { templateId } });
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name is required");
+
+  const last = await db.campaignVariant.findFirst({
+    where: { workspaceId, campaignId },
+    orderBy: { order: "desc" },
+    select: { order: true },
+  });
+  const variant = await db.campaignVariant.create({
+    data: { workspaceId, campaignId, name: trimmed, order: (last?.order ?? -1) + 1 },
+  });
+
+  // Keep the step x variant grid fully populated: every existing step gets an empty body
+  // row for the new variant, so setCampaignStepBody always has a row to upsert against.
+  const steps = await db.campaignStep.findMany({ where: { workspaceId, campaignId }, select: { id: true } });
+  if (steps.length > 0) {
+    await db.campaignStepBody.createMany({
+      data: steps.map((s) => ({ workspaceId, stepId: s.id, variantId: variant.id })),
+    });
+  }
+
+  revalidatePath(`/marketing/campaigns/${campaignId}`);
+  return variant;
+}
+
+export async function renameCampaignVariant(variantId: string, name: string) {
+  const { workspaceId } = await requireWorkspace();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name is required");
+
+  const variant = await db.campaignVariant.update({ where: { id: variantId, workspaceId }, data: { name: trimmed } });
+  revalidatePath(`/marketing/campaigns/${variant.campaignId}`);
+}
+
+export async function deleteCampaignVariant(variantId: string) {
+  const { workspaceId } = await requireWorkspace();
+  const variant = await db.campaignVariant.findUniqueOrThrow({
+    where: { id: variantId, workspaceId },
+    include: { campaign: true },
+  });
+  if (variant.campaign.status !== "draft") {
+    throw new Error("Can't remove a variant after the campaign has started — members are already assigned to it.");
+  }
+
+  await db.campaignVariant.delete({ where: { id: variantId, workspaceId } });
+  revalidatePath(`/marketing/campaigns/${variant.campaignId}`);
+}
+
+// ---- Steps (timed sends) ----
+
+export type CampaignStepInput = { delayDays: number; delayHours: number };
+
+export async function listCampaignSteps(campaignId: string) {
+  const { workspaceId } = await requireWorkspace();
+  return db.campaignStep.findMany({
+    where: { workspaceId, campaignId },
+    include: { bodies: true },
+    orderBy: { order: "asc" },
+  });
+}
+
+export async function addCampaignStep(campaignId: string, input: CampaignStepInput) {
+  const { workspaceId } = await requireWorkspace();
+  await assertLimit(workspaceId, "campaign_steps_count");
+
+  const [last, variants] = await Promise.all([
+    db.campaignStep.findFirst({ where: { workspaceId, campaignId }, orderBy: { order: "desc" }, select: { order: true } }),
+    db.campaignVariant.findMany({ where: { workspaceId, campaignId }, select: { id: true } }),
+  ]);
+
+  const step = await db.campaignStep.create({
+    data: {
+      workspaceId,
+      campaignId,
+      order: (last?.order ?? -1) + 1,
+      delayDays: input.delayDays,
+      delayHours: input.delayHours,
+    },
+  });
+
+  // Mirror addCampaignVariant's grid-population: a new step gets one empty body row per
+  // already-existing variant, so the grid is always fully populated in both directions.
+  if (variants.length > 0) {
+    await db.campaignStepBody.createMany({
+      data: variants.map((v) => ({ workspaceId, stepId: step.id, variantId: v.id })),
+    });
+  }
+
+  revalidatePath(`/marketing/campaigns/${campaignId}`);
+  return step;
+}
+
+export async function deleteCampaignStep(stepId: string) {
+  const { workspaceId } = await requireWorkspace();
+  const step = await db.campaignStep.delete({ where: { id: stepId, workspaceId } });
+  revalidatePath(`/marketing/campaigns/${step.campaignId}`);
+}
+
+export async function reorderCampaignSteps(campaignId: string, orderedIds: string[]) {
+  const { workspaceId } = await requireWorkspace();
+  await Promise.all(orderedIds.map((id, i) => db.campaignStep.update({ where: { id, workspaceId }, data: { order: i } })));
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
-// Renders a template's subject/body with a real recipient's data so the builder can show
-// what the merge tokens will actually produce — falls back to the raw template if the
-// campaign has no members yet (nothing to interpolate against).
-export async function previewCampaignTemplate(campaignId: string, templateId: string) {
+// ---- Step bodies (per step x variant content) ----
+
+export type CampaignStepBodyInput = { templateId?: string | null; subject?: string; bodyHtml?: string };
+
+export async function setCampaignStepBody(stepId: string, variantId: string, input: CampaignStepBodyInput) {
   const { workspaceId } = await requireWorkspace();
-  const [template, firstMember] = await Promise.all([
-    db.emailTemplate.findUniqueOrThrow({ where: { id: templateId, workspaceId } }),
-    db.campaignMember.findFirst({ where: { workspaceId, campaignId }, orderBy: { addedAt: "asc" } }),
-  ]);
+  const step = await db.campaignStep.findUniqueOrThrow({ where: { id: stepId, workspaceId } });
+
+  await db.campaignStepBody.upsert({
+    where: { stepId_variantId: { stepId, variantId } },
+    create: {
+      workspaceId,
+      stepId,
+      variantId,
+      templateId: input.templateId || null,
+      subject: input.subject,
+      bodyHtml: input.bodyHtml,
+    },
+    update: {
+      templateId: input.templateId || null,
+      subject: input.subject,
+      bodyHtml: input.bodyHtml,
+    },
+  });
+  revalidatePath(`/marketing/campaigns/${step.campaignId}`);
+}
+
+// Renders a step/variant's subject/body with a real recipient's data so the builder can
+// show what the merge tokens will actually produce — falls back to raw content if the
+// campaign has no members yet (nothing to interpolate against).
+export async function previewCampaignStepBody(stepId: string, variantId: string) {
+  const { workspaceId } = await requireWorkspace();
+  const body = await db.campaignStepBody.findUniqueOrThrow({
+    where: { stepId_variantId: { stepId, variantId } },
+    include: { template: true, step: true },
+  });
+  const firstMember = await db.campaignMember.findFirst({
+    where: { workspaceId, campaignId: body.step.campaignId },
+    orderBy: { addedAt: "asc" },
+  });
+
+  const rawSubject = body.templateId ? body.template!.subject : body.subject ?? "";
+  const rawBodyHtml = body.templateId ? body.template!.bodyHtml : body.bodyHtml ?? "";
 
   if (!firstMember) {
-    return { subject: template.subject, bodyHtml: template.bodyHtml, previewedFor: null as string | null };
+    return { subject: rawSubject, bodyHtml: rawBodyHtml, previewedFor: null as string | null };
   }
 
   const { interpolateForPerson } = await import("@/lib/template-variables");
   const [subject, bodyHtml] = await Promise.all([
-    interpolateForPerson(template.subject, firstMember.personId, workspaceId),
-    interpolateForPerson(template.bodyHtml, firstMember.personId, workspaceId),
+    interpolateForPerson(rawSubject, firstMember.personId, workspaceId),
+    interpolateForPerson(rawBodyHtml, firstMember.personId, workspaceId),
   ]);
   const person = await db.person.findUnique({ where: { id: firstMember.personId, workspaceId } });
   const previewedFor = person ? [person.firstName, person.lastName].filter(Boolean).join(" ") : null;
@@ -366,38 +504,44 @@ export type CampaignReadiness = {
   reason: string | null;
   recipientCount: number;
   mailboxCount: number;
-  templateName: string | null;
+  stepCount: number;
+  variantCount: number;
 };
 
 export async function getCampaignReadiness(campaignId: string): Promise<CampaignReadiness> {
   const { workspaceId } = await requireWorkspace();
   const campaign = await db.campaign.findUniqueOrThrow({
     where: { id: campaignId, workspaceId },
-    include: { members: true, mailboxes: true, template: true },
+    include: { members: true, mailboxes: true, steps: true, variants: true },
   });
 
-  if (campaign.members.length === 0) {
-    return { ready: false, reason: "Add at least one recipient first.", recipientCount: 0, mailboxCount: campaign.mailboxes.length, templateName: campaign.template?.name ?? null };
-  }
-  if (campaign.mailboxes.length === 0) {
-    return { ready: false, reason: "Select at least one outreach inbox first.", recipientCount: campaign.members.length, mailboxCount: 0, templateName: campaign.template?.name ?? null };
-  }
-  if (!campaign.template) {
-    return { ready: false, reason: "Select an email template first.", recipientCount: campaign.members.length, mailboxCount: campaign.mailboxes.length, templateName: null };
-  }
-
-  return {
-    ready: true,
-    reason: null,
+  const base = {
     recipientCount: campaign.members.length,
     mailboxCount: campaign.mailboxes.length,
-    templateName: campaign.template.name,
+    stepCount: campaign.steps.length,
+    variantCount: campaign.variants.length,
   };
+
+  if (campaign.members.length === 0) {
+    return { ready: false, reason: "Add at least one recipient first.", ...base };
+  }
+  if (campaign.mailboxes.length === 0) {
+    return { ready: false, reason: "Select at least one outreach inbox first.", ...base };
+  }
+  if (campaign.variants.length === 0) {
+    return { ready: false, reason: "Add at least one template variant first.", ...base };
+  }
+  if (campaign.steps.length === 0) {
+    return { ready: false, reason: "Add at least one step first.", ...base };
+  }
+
+  return { ready: true, reason: null, ...base };
 }
 
-// Enqueues one paced send job per pending recipient, round-robining across the campaign's
-// selected mailboxes, each job delayed 30-60s after the previous one so the whole batch
-// trickles out over time instead of firing all at once.
+// Enrolls every not-yet-enrolled member, staggering step-1 sends 30-60s apart within the
+// batch (see enrollCampaignMembers in campaign-runner.ts) so it trickles out over time
+// instead of firing all at once. The repeatable campaign-worker tick picks up the
+// resulting CampaignStepRuns as they come due.
 export async function startCampaign(campaignId: string) {
   const { workspaceId } = await requireWorkspace();
   await assertLimit(workspaceId, "campaigns_feature");
@@ -405,31 +549,19 @@ export async function startCampaign(campaignId: string) {
   const campaign = await db.campaign.findUniqueOrThrow({
     where: { id: campaignId, workspaceId },
     include: {
-      members: { where: { sendStatus: "pending" } },
+      members: { where: { enrolledAt: null } },
       mailboxes: true,
+      steps: true,
+      variants: true,
     },
   });
 
   if (campaign.mailboxes.length === 0) throw new Error("Select at least one outreach inbox first.");
-  if (!campaign.templateId) throw new Error("Select an email template first.");
+  if (campaign.steps.length === 0) throw new Error("Add at least one step first.");
+  if (campaign.variants.length === 0) throw new Error("Add at least one template variant first.");
   if (campaign.members.length === 0) throw new Error("No pending recipients to send to.");
 
-  let cumulativeDelay = 0;
-  for (let i = 0; i < campaign.members.length; i++) {
-    const member = campaign.members[i];
-    const mailboxAccountId = campaign.mailboxes[i % campaign.mailboxes.length].mailboxAccountId;
-
-    if (i > 0) cumulativeDelay += MIN_SEND_GAP_MS + Math.random() * (MAX_SEND_GAP_MS - MIN_SEND_GAP_MS);
-
-    await campaignQueue.add(
-      "send",
-      { campaignMemberId: member.id, mailboxAccountId },
-      { delay: Math.round(cumulativeDelay) }
-    );
-    await db.campaignMember.update({ where: { id: member.id, workspaceId }, data: { sendStatus: "queued" } });
-  }
-
-  await db.campaign.update({ where: { id: campaignId, workspaceId }, data: { status: "active" } });
+  await enrollCampaignMembers(campaign.members.map((m) => m.id), workspaceId);
   revalidatePath(`/marketing/campaigns/${campaignId}`);
 }
 
@@ -438,62 +570,106 @@ export type CampaignProgressMember = {
   personId: string;
   name: string;
   email: string | null;
-  sendStatus: string;
-  sentAt: Date | null;
-  sendError: string | null;
+  variantName: string | null;
+  currentStep: { order: number; total: number } | null; // null once every step is terminal
   opened: boolean;
   openedAt: Date | null;
 };
 
-export type CampaignProgress = {
-  total: number;
+export type CampaignProgressStep = {
+  stepId: string;
+  order: number;
+  delayLabel: string;
   pending: number;
-  queued: number;
   sent: number;
   failed: number;
+  skipped: number;
+};
+
+export type CampaignProgressVariant = {
+  variantId: string;
+  name: string;
+  memberCount: number;
+  sent: number;
   opened: number;
+};
+
+export type CampaignProgress = {
+  total: number;
+  enrolled: number;
+  opened: number;
+  bySteps: CampaignProgressStep[];
+  byVariant: CampaignProgressVariant[];
   members: CampaignProgressMember[];
 };
 
+function delayLabel(delayDays: number, delayHours: number) {
+  if (delayDays === 0 && delayHours === 0) return "Immediately";
+  const parts = [];
+  if (delayDays > 0) parts.push(`${delayDays}d`);
+  if (delayHours > 0) parts.push(`${delayHours}h`);
+  return `+${parts.join(" ")}`;
+}
+
 export async function getCampaignProgress(campaignId: string): Promise<CampaignProgress> {
   const { workspaceId } = await requireWorkspace();
-  const members = await db.campaignMember.findMany({
-    where: { workspaceId, campaignId },
-    include: {
-      person: true,
-      emails: {
-        include: { opens: { orderBy: { openedAt: "asc" }, take: 1 } },
+
+  const [steps, variants, members] = await Promise.all([
+    db.campaignStep.findMany({ where: { workspaceId, campaignId }, orderBy: { order: "asc" } }),
+    db.campaignVariant.findMany({ where: { workspaceId, campaignId }, orderBy: { order: "asc" } }),
+    db.campaignMember.findMany({
+      where: { workspaceId, campaignId },
+      include: {
+        person: true,
+        variant: true,
+        runs: { include: { step: true }, orderBy: { step: { order: "asc" } } },
+        emails: { include: { opens: { orderBy: { openedAt: "asc" }, take: 1 } } },
       },
-    },
-    // Most-recently-resolved first (sent/failed), so the top of the list shows what just
-    // happened rather than the untouched tail of the queue.
-    orderBy: [{ sentAt: "desc" }, { addedAt: "asc" }],
+      orderBy: [{ enrolledAt: "desc" }, { addedAt: "asc" }],
+    }),
+  ]);
+
+  const bySteps: CampaignProgressStep[] = steps.map((step) => {
+    const runs = members.flatMap((m) => m.runs).filter((r) => r.stepId === step.id);
+    return {
+      stepId: step.id,
+      order: step.order,
+      delayLabel: delayLabel(step.delayDays, step.delayHours),
+      pending: runs.filter((r) => r.status === "pending").length,
+      sent: runs.filter((r) => r.status === "sent").length,
+      failed: runs.filter((r) => r.status === "failed").length,
+      skipped: runs.filter((r) => r.status === "skipped").length,
+    };
   });
 
-  const counts = { pending: 0, queued: 0, sent: 0, failed: 0 };
-  let opened = 0;
-  for (const m of members) {
-    counts[m.sendStatus as keyof typeof counts]++;
-    if (m.emails.some((e) => e.opens.length > 0)) opened++;
-  }
+  const byVariant: CampaignProgressVariant[] = variants.map((variant) => {
+    const variantMembers = members.filter((m) => m.variantId === variant.id);
+    const sent = variantMembers.reduce((sum, m) => sum + m.runs.filter((r) => r.status === "sent").length, 0);
+    const opened = variantMembers.filter((m) => m.emails.some((e) => e.opens.length > 0)).length;
+    return { variantId: variant.id, name: variant.name, memberCount: variantMembers.length, sent, opened };
+  });
 
-  return {
-    total: members.length,
-    ...counts,
-    opened,
-    members: members.map((m) => {
-      const firstOpen = m.emails.flatMap((e) => e.opens)[0] ?? null;
-      return {
-        id: m.id,
-        personId: m.personId,
-        name: [m.person.firstName, m.person.lastName].filter(Boolean).join(" ") || "Untitled",
-        email: m.person.email,
-        sendStatus: m.sendStatus,
-        sentAt: m.sentAt,
-        sendError: m.sendError,
-        opened: !!firstOpen,
-        openedAt: firstOpen?.openedAt ?? null,
-      };
-    }),
-  };
+  let opened = 0;
+  let enrolled = 0;
+  const memberRows: CampaignProgressMember[] = members.map((m) => {
+    if (m.enrolledAt) enrolled++;
+    const firstOpen = m.emails.flatMap((e) => e.opens)[0] ?? null;
+    if (firstOpen) opened++;
+
+    const nextPending = m.runs.find((r) => r.status === "pending");
+    const currentStep = nextPending ? { order: nextPending.step.order + 1, total: steps.length } : null;
+
+    return {
+      id: m.id,
+      personId: m.personId,
+      name: [m.person.firstName, m.person.lastName].filter(Boolean).join(" ") || "Untitled",
+      email: m.person.email,
+      variantName: m.variant?.name ?? null,
+      currentStep,
+      opened: !!firstOpen,
+      openedAt: firstOpen?.openedAt ?? null,
+    };
+  });
+
+  return { total: members.length, enrolled, opened, bySteps, byVariant, members: memberRows };
 }

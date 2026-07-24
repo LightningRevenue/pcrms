@@ -74,6 +74,10 @@ model Workspace {
   campaigns              Campaign[]
   campaignMailboxes      CampaignMailbox[]
   campaignMembers        CampaignMember[]
+  campaignVariants       CampaignVariant[]
+  campaignSteps          CampaignStep[]
+  campaignStepBodies     CampaignStepBody[]
+  campaignStepRuns       CampaignStepRun[]
   sequences              Sequence[]
   sequenceSteps          SequenceStep[]
   sequenceEnrollments    SequenceEnrollment[]
@@ -83,9 +87,6 @@ model Workspace {
   favorites              Favorite[]
   notifications          Notification[]
   settings               WorkspaceSetting[]
-  objectDefinitions      ObjectDefinition[]
-  fieldDefinitions       FieldDefinition[]
-  objectRecords          ObjectRecord[]
 }
 
 // A subscription tier (e.g. Free/Pro/Enterprise — names/pricing decided later, not here).
@@ -217,8 +218,6 @@ model User {
   playbooks            Playbook[]
   customReports        CustomReport[]
   handledGdprRequests  GdprRequest[]
-  createdObjectDefinitions ObjectDefinition[]
-  createdObjectRecords     ObjectRecord[]
 }
 
 // Per-user favorites (Home sidebar shortcut), capped at 5 per user — enforced in the action, not the schema.
@@ -647,8 +646,8 @@ model EmailTemplate {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  sequenceSteps SequenceStep[]
-  campaigns     Campaign[]
+  sequenceSteps      SequenceStep[]
+  campaignStepBodies CampaignStepBody[]
 
   @@index([workspaceId])
 }
@@ -807,9 +806,10 @@ model MailboxAccount {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  emails          Email[]
-  defaultForUsers UserMailboxPreference[]
-  campaigns       CampaignMailbox[]
+  emails           Email[]
+  defaultForUsers  UserMailboxPreference[]
+  campaigns        CampaignMailbox[]
+  campaignStepRuns CampaignStepRun[]
 
   @@index([createdById])
   @@index([workspaceId])
@@ -1080,10 +1080,12 @@ model GdprRequest {
   @@index([personId])
 }
 
-// A bulk-email campaign: a one-off send to a static set of people, as opposed to a
-// Sequence's multi-step drip. Membership is captured at build time (CampaignMember),
-// not re-evaluated later — adding someone to a Sequence/other Campaign after the fact
-// doesn't retroactively remove them.
+// A bulk-email campaign: N template variants (A/N test, random/even split, no
+// auto-winner-picking) sent over one or more timed CampaignSteps, via the SMTP
+// mailbox-account round-robin (CampaignMailbox), not Gmail. Reactive: adding a member
+// after the campaign has started/drained auto-enrolls and sends to just that person —
+// see CampaignMember.enrolledAt and CampaignStepRun below. "sent" is a live snapshot
+// label ("nothing outstanding right now"), not a terminal/locked state.
 model Campaign {
   id        String   @id @default(cuid())
   name      String
@@ -1093,17 +1095,83 @@ model Campaign {
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
 
-  // Subject/body are interpolated per-recipient at send time via interpolateForPerson,
-  // same {{person.x}} / {{company.x}} tokens as Sequence steps.
-  templateId String?
-  template   EmailTemplate? @relation(fields: [templateId], references: [id])
-
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   members   CampaignMember[]
   mailboxes CampaignMailbox[]
+  steps     CampaignStep[]
+  variants  CampaignVariant[]
 
+  @@index([workspaceId])
+}
+
+// One template variant for the campaign's step(s) — N variants, not fixed at 2 ("A/N").
+// Each CampaignMember is assigned exactly one variant at enroll time (random/even split)
+// and stays on it for every step.
+model CampaignVariant {
+  id    String @id @default(cuid())
+  name  String // e.g. "Variant A" — user-editable label, no semantic meaning
+  order Int    @default(0)
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  members CampaignMember[]
+  bodies  CampaignStepBody[]
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, order])
+  @@index([workspaceId])
+}
+
+// One step in the campaign's send sequence — email-only, no task/note step types like
+// SequenceStep has (a Campaign has no "owner" to assign a task to). Delay is cumulative
+// from enrollment time, same convention as SequenceStep.
+model CampaignStep {
+  id    String @id @default(cuid())
+  order Int    @default(0)
+
+  delayDays  Int @default(0)
+  delayHours Int @default(0)
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  bodies CampaignStepBody[]
+  runs   CampaignStepRun[]
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, order])
+  @@index([workspaceId])
+}
+
+// The subject/body for one (step, variant) pair — either a templateId or a custom
+// subject/bodyHtml, same either/or convention as SequenceStep. A campaign with 1 variant
+// still has one CampaignStepBody per step; the "variant" concept doesn't disappear at
+// N=1, it's just a single row, so no special-casing needed elsewhere.
+model CampaignStepBody {
+  id String @id @default(cuid())
+
+  templateId String?
+  template   EmailTemplate? @relation(fields: [templateId], references: [id])
+  subject    String?
+  bodyHtml   String?
+
+  stepId String
+  step   CampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  variantId String
+  variant   CampaignVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, variantId])
   @@index([workspaceId])
 }
 
@@ -1125,6 +1193,11 @@ model CampaignMailbox {
   @@index([workspaceId])
 }
 
+// A recipient's membership + variant assignment. Per-step send history lives in
+// CampaignStepRun (one row per step), not here. addedAt is "when added to the campaign"
+// (list ordering); enrolledAt is null until this member's CampaignStepRuns are actually
+// scheduled — for a freshly-added member on an already-active campaign that happens
+// immediately (reactive enrollment), not at some later manual restart.
 model CampaignMember {
   id      String   @id @default(cuid())
   addedAt DateTime @default(now())
@@ -1141,11 +1214,16 @@ model CampaignMember {
   addedById String?
   addedBy   User?   @relation(fields: [addedById], references: [id])
 
-  // Per-recipient send state, set once startCampaign enqueues the paced send jobs.
-  sendStatus String    @default("pending") // "pending" | "queued" | "sent" | "failed"
-  sentAt     DateTime?
-  sendError  String?
+  // Assigned once, at enrollment time, by random/even split across the campaign's
+  // variants — stays fixed for every step this member goes through.
+  variantId String?
+  variant   CampaignVariant? @relation(fields: [variantId], references: [id])
 
+  // Null until this member's CampaignStepRuns are scheduled (see enrollCampaignMember in
+  // campaign-runner.ts) — what makes a late-added member self-enroll on a reactive campaign.
+  enrolledAt DateTime?
+
+  runs   CampaignStepRun[]
   emails Email[]
 
   workspaceId String
@@ -1153,6 +1231,35 @@ model CampaignMember {
 
   @@unique([campaignId, personId])
   @@index([personId])
+  @@index([workspaceId])
+}
+
+// One row per (member, step) — mirrors SequenceStepRun exactly, including the status
+// vocabulary and the scheduledFor-cumulative-from-enrollment convention.
+model CampaignStepRun {
+  id           String    @id @default(cuid())
+  status       String    @default("pending") // "pending" | "sent" | "failed" | "skipped"
+  scheduledFor DateTime
+  executedAt   DateTime?
+  error        String?
+
+  // Assigned at execution time (round robin over the campaign's currently-selected
+  // mailboxes), not snapshotted at enrollment — so a late-added member's step-1 send
+  // uses whichever mailboxes are selected now, not a stale list from the original batch.
+  mailboxAccountId String?
+  mailboxAccount   MailboxAccount? @relation(fields: [mailboxAccountId], references: [id], onDelete: SetNull)
+
+  memberId String
+  member   CampaignMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  stepId String
+  step   CampaignStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, stepId])
+  @@index([status, scheduledFor])
   @@index([workspaceId])
 }
 
@@ -1280,98 +1387,4 @@ model LinkedinProspect {
 
   @@unique([workspaceId, linkedinUrn])
   @@index([workspaceId, createdAt])
-}
-
-// A user-defined object type (e.g. "Products") — the schema for its records lives in
-// FieldDefinition, not as real Postgres columns. Deliberately not DDL-backed: see
-// ObjectRecord for the storage tradeoff. This model is the part that WOULD become a
-// `CREATE TABLE` if this ever migrates to real per-object tables, so keep it authoritative
-// and complete (name/slug/labels) rather than treating it as a UI-only label.
-model ObjectDefinition {
-  id           String   @id @default(cuid())
-  slug         String // url-safe, stable identifier — e.g. "products"
-  name         String
-  nameSingular String
-  namePlural   String
-  icon         String   @default("Package") // lucide-react icon name
-  createdAt    DateTime @default(now())
-
-  createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id])
-
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  fields  FieldDefinition[]
-  records ObjectRecord[]
-
-  @@unique([workspaceId, slug])
-  @@index([workspaceId])
-}
-
-// One field on a custom object. `key` is the stable JSONB key used in ObjectRecord.values.
-// `relationTarget` is "person" | "company" | "opportunity" | an ObjectDefinition.id, resolved
-// by lookup code rather than a real FK (JSONB can't hold one) — the one place this storage
-// model differs from a real DDL-backed relation.
-model FieldDefinition {
-  id       String   @id @default(cuid())
-  key      String // stable, set once at creation from the label; never renamed
-  label    String
-  type     String // "text" | "number" | "date" | "boolean" | "select" | "relation"
-  options  String[] @default([]) // choices, only used when type = "select"
-  required Boolean  @default(false)
-  order    Int      @default(0)
-
-  // Only set when type = "relation" — either a fixed CRM entity or another custom object's id.
-  relationTarget String?
-
-  // Conditional visibility: this field only shows/applies on the record form when
-  // dependsOnField has a value — and if dependsOnValue is also set, only when it equals
-  // that exact value (e.g. "Price" depends on "In Stock" = "true"). Self-relation within the
-  // same object; deliberately no onDelete cascade loop — see deleteField's cleanup instead.
-  dependsOnFieldId String?
-  dependsOnField   FieldDefinition?  @relation("FieldDependency", fields: [dependsOnFieldId], references: [id], onDelete: SetNull)
-  dependsOnValue   String?
-  dependents       FieldDefinition[] @relation("FieldDependency")
-
-  // Free-form position on the record form's custom layout canvas — null until the workspace
-  // saves a layout via setFieldLayout, at which point the form switches from the default
-  // linear list to this absolute positioning.
-  layoutX Int?
-  layoutY Int?
-  layoutW Int?
-
-  objectDefinitionId String
-  objectDefinition    ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
-
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@unique([objectDefinitionId, key])
-  @@index([workspaceId])
-  @@index([dependsOnFieldId])
-}
-
-// One row per record (e.g. one Product). `values` is a JSONB map of {fieldKey: value},
-// written and read only through objects.ts, which validates every write against the
-// object's FieldDefinition rows (type-checked, required enforced) — never a free-form blob.
-// Chosen over one-row-per-field-value (EAV) so a single record is a single row: no joins to
-// read or filter a record, and a future move to real DDL columns is a straight
-// `INSERT INTO new_table SELECT values->>'key', ...` per field.
-model ObjectRecord {
-  id        String   @id @default(cuid())
-  values    Json     @default("{}")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id])
-
-  objectDefinitionId String
-  objectDefinition    ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
-
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, objectDefinitionId])
 }

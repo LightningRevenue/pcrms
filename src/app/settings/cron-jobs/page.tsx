@@ -6,6 +6,7 @@ import {
   listCronJobRuns,
   runGmailSyncNow,
   runSequenceStepsNow,
+  runCampaignStepsNow,
   runTrashPurgeNow,
   runStripeReconcileNow,
 } from "@/lib/actions/cron-jobs";
@@ -16,9 +17,10 @@ export default async function CronJobsPage() {
     return <RestrictedSettingsPage crumbs={["Workspace", "Cron Jobs"]} requiredRole="owner" />;
   }
 
-  const [gmailRuns, sequenceRuns, trashRuns, stripeRuns] = await Promise.all([
+  const [gmailRuns, sequenceRuns, campaignRuns, trashRuns, stripeRuns] = await Promise.all([
     listCronJobRuns("gmail-reply-sync"),
     listCronJobRuns("sequence-step-runner"),
+    listCronJobRuns("campaign-step-runner"),
     listCronJobRuns("trash-purge"),
     listCronJobRuns("stripe-reconcile"),
   ]);
@@ -47,6 +49,16 @@ export default async function CronJobsPage() {
             countLabel="Steps executed"
             runs={sequenceRuns}
             onRunNow={runSequenceStepsNow}
+          />
+        </div>
+
+        <div className="mt-10">
+          <CronJobPanel
+            title="campaign-step-runner"
+            description="Sends due campaign emails every minute."
+            countLabel="Steps executed"
+            runs={campaignRuns}
+            onRunNow={runCampaignStepsNow}
           />
         </div>
 

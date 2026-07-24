@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Check, X, Megaphone, Users, KanbanSquare, ListChecks, ArrowRight, ArrowLeft, Inbox, FileText, Send, Clock } from "lucide-react";
+import type { EmailTemplate } from "@prisma/client";
+import { Search, Check, X, Megaphone, Users, KanbanSquare, ListChecks, ArrowRight, ArrowLeft, Inbox, Send, Clock, Plus, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { RichTextEditor } from "@/components/rich-text-editor";
+import { listTemplates } from "@/lib/actions/emails";
+import { listTemplateVariables, type TemplateVariable } from "@/lib/template-variables";
 import {
   searchContactsForCampaign,
   searchDealsForCampaign,
@@ -15,17 +19,24 @@ import {
   removeMemberFromCampaign,
   getActiveMailboxAccountsForCampaign,
   setCampaignMailboxes,
-  listEmailTemplatesForCampaign,
-  setCampaignTemplate,
-  previewCampaignTemplate,
+  listCampaignVariants,
+  addCampaignVariant,
+  renameCampaignVariant,
+  deleteCampaignVariant,
+  listCampaignSteps,
+  addCampaignStep,
+  deleteCampaignStep,
+  setCampaignStepBody,
+  previewCampaignStepBody,
   getCampaignReadiness,
   startCampaign,
   getCampaignProgress,
   type CampaignPersonRow,
   type CampaignDealRow,
   type CampaignListOption,
-  type CampaignTemplateOption,
   type CampaignReadiness,
+  type CampaignStepInput,
+  type CampaignProgress,
 } from "@/lib/actions/campaigns";
 
 type Campaign = {
@@ -46,7 +57,7 @@ type Campaign = {
 };
 
 type Tab = "contacts" | "deals" | "lists";
-type Step = "recipients" | "inboxes" | "template";
+type Step = "recipients" | "inboxes" | "variants" | "steps";
 
 export function CampaignBuilderView({ campaign }: { campaign: Campaign }) {
   const [step, setStep] = useState<Step>("recipients");
@@ -70,10 +81,12 @@ export function CampaignBuilderView({ campaign }: { campaign: Campaign }) {
           <InboxesStep
             campaignId={campaign.id}
             onBack={() => setStep("recipients")}
-            onNext={() => setStep("template")}
+            onNext={() => setStep("variants")}
           />
+        ) : step === "variants" ? (
+          <VariantsStep campaignId={campaign.id} onBack={() => setStep("inboxes")} onNext={() => setStep("steps")} />
         ) : (
-          <TemplateStep campaignId={campaign.id} campaignStatus={campaign.status} onBack={() => setStep("inboxes")} />
+          <StepsStep campaignId={campaign.id} campaignStatus={campaign.status} onBack={() => setStep("variants")} />
         )}
       </div>
     </div>
@@ -87,7 +100,9 @@ function StepIndicator({ step }: { step: Step }) {
       <span className="text-subtle">→</span>
       <span className={step === "inboxes" ? "text-foreground font-medium" : "text-subtle"}>2. Inboxes</span>
       <span className="text-subtle">→</span>
-      <span className={step === "template" ? "text-foreground font-medium" : "text-subtle"}>3. Template</span>
+      <span className={step === "variants" ? "text-foreground font-medium" : "text-subtle"}>3. Variants</span>
+      <span className="text-subtle">→</span>
+      <span className={step === "steps" ? "text-foreground font-medium" : "text-subtle"}>4. Steps</span>
     </div>
   );
 }
@@ -457,7 +472,167 @@ function InboxesStep({
   );
 }
 
-function TemplateStep({
+type VariantRow = { id: string; name: string; order: number };
+
+function VariantsStep({
+  campaignId,
+  onBack,
+  onNext,
+}: {
+  campaignId: string;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  const [variants, setVariants] = useState<VariantRow[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  function refresh() {
+    listCampaignVariants(campaignId).then((v) => {
+      setVariants(v);
+      setLoaded(true);
+    });
+  }
+
+  useEffect(refresh, [campaignId]);
+
+  function add() {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    startTransition(async () => {
+      await addCampaignVariant(campaignId, trimmed);
+      setNewName("");
+      refresh();
+    });
+  }
+
+  function saveRename() {
+    if (!editingId) return;
+    const trimmed = editingName.trim();
+    if (!trimmed) return;
+    startTransition(async () => {
+      await renameCampaignVariant(editingId, trimmed);
+      setEditingId(null);
+      refresh();
+    });
+  }
+
+  function remove(id: string) {
+    startTransition(async () => {
+      await deleteCampaignVariant(id);
+      refresh();
+    });
+  }
+
+  return (
+    <div className="flex flex-col h-full max-w-xl mx-auto">
+      <div className="px-6 pt-6 pb-2">
+        <h2 className="text-[15px] font-medium">Template Variants</h2>
+        <p className="text-[13px] text-subtle mt-1">
+          Add one or more variants to A/N test — each recipient is randomly assigned to exactly one variant and stays
+          on it for every step. Content for each variant is written in the next step.
+        </p>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-auto px-6 py-2">
+        {!loaded ? (
+          <p className="text-[13px] text-subtle text-center py-8">Loading…</p>
+        ) : (
+          <div className="border border-border rounded-md overflow-hidden">
+            {variants.length === 0 ? (
+              <p className="text-[13px] text-subtle text-center py-8">No variants yet — add one below.</p>
+            ) : (
+              variants.map((v) => (
+                <div key={v.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-border last:border-b-0">
+                  {editingId === v.id ? (
+                    <input
+                      autoFocus
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && saveRename()}
+                      onBlur={saveRename}
+                      className="flex-1 min-w-0 text-[13px] outline-none bg-transparent border-b border-accent"
+                    />
+                  ) : (
+                    <span className="flex-1 min-w-0 text-[13px] truncate">{v.name}</span>
+                  )}
+                  <button
+                    onClick={() => {
+                      setEditingId(v.id);
+                      setEditingName(v.name);
+                    }}
+                    className="p-1 rounded text-subtle hover:text-foreground transition-colors shrink-0"
+                  >
+                    <Pencil size={13} strokeWidth={1.5} />
+                  </button>
+                  <button
+                    onClick={() => remove(v.id)}
+                    disabled={pending}
+                    className="p-1 rounded text-subtle hover:text-red-400 transition-colors shrink-0"
+                  >
+                    <Trash2 size={13} strokeWidth={1.5} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mt-3">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
+            placeholder={`Variant ${String.fromCharCode(65 + variants.length)}`}
+            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent placeholder:text-subtle focus:border-accent transition-colors"
+          />
+          <button
+            onClick={add}
+            disabled={pending || !newName.trim()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus size={14} strokeWidth={2} />
+            Add variant
+          </button>
+        </div>
+      </div>
+
+      <div className="p-3 border-t border-border flex items-center gap-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] text-subtle hover:bg-muted transition-colors"
+        >
+          <ArrowLeft size={14} strokeWidth={2} />
+          Back
+        </button>
+        <div className="flex-1" />
+        <button
+          onClick={onNext}
+          disabled={variants.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Next: Steps
+          <ArrowRight size={14} strokeWidth={2} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type StepRow = { id: string; order: number; delayDays: number; delayHours: number };
+
+function stepDelayLabel(delayDays: number, delayHours: number) {
+  if (delayDays === 0 && delayHours === 0) return "Immediately";
+  const parts = [];
+  if (delayDays > 0) parts.push(`${delayDays}d`);
+  if (delayHours > 0) parts.push(`${delayHours}h`);
+  return `+${parts.join(" ")}`;
+}
+
+function StepsStep({
   campaignId,
   campaignStatus,
   onBack,
@@ -466,125 +641,116 @@ function TemplateStep({
   campaignStatus: string;
   onBack: () => void;
 }) {
-  const [templates, setTemplates] = useState<CampaignTemplateOption[]>([]);
+  const [steps, setSteps] = useState<StepRow[]>([]);
+  const [variants, setVariants] = useState<VariantRow[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; previewedFor: string | null } | null>(null);
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [started, setStarted] = useState(campaignStatus !== "draft");
   const [pending, startTransition] = useTransition();
 
-  useEffect(() => {
-    listEmailTemplatesForCampaign(campaignId).then((opts) => {
-      setTemplates(opts);
-      setSelectedId(opts.find((o) => o.selected)?.id ?? null);
+  function refresh() {
+    Promise.all([listCampaignSteps(campaignId), listCampaignVariants(campaignId)]).then(([s, v]) => {
+      setSteps(s);
+      setVariants(v);
       setLoaded(true);
+      setExpandedStepId((prev) => prev ?? s[0]?.id ?? null);
     });
-  }, [campaignId]);
+  }
 
-  useEffect(() => {
-    if (!selectedId) {
-      setPreview(null);
-      return;
-    }
-    previewCampaignTemplate(campaignId, selectedId).then(setPreview);
-  }, [campaignId, selectedId]);
+  useEffect(refresh, [campaignId]);
 
-  function select(id: string) {
-    setSelectedId(id);
-    startTransition(() => setCampaignTemplate(campaignId, id));
+  function addStep(input: CampaignStepInput) {
+    startTransition(async () => {
+      const step = await addCampaignStep(campaignId, input);
+      setExpandedStepId(step.id);
+      refresh();
+    });
+  }
+
+  function removeStep(id: string) {
+    startTransition(async () => {
+      await deleteCampaignStep(id);
+      refresh();
+    });
   }
 
   if (started) {
-    return <CampaignProgress campaignId={campaignId} />;
+    return <CampaignProgressSummary campaignId={campaignId} />;
   }
 
   return (
-    <div className="flex h-full">
-      <div className="w-72 shrink-0 flex flex-col border-r border-border">
-        <div className="h-11 shrink-0 flex items-center px-4 border-b border-border">
-          <span className="text-[13px] font-medium">Select a template</span>
-        </div>
-        <div className="flex-1 min-h-0 overflow-auto">
-          {!loaded ? (
-            <p className="text-[13px] text-subtle text-center py-8 px-4">Loading…</p>
-          ) : templates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center text-center py-12 px-4">
-              <FileText size={24} strokeWidth={1.5} className="text-subtle" />
-              <p className="text-[13px] text-subtle mt-3">No email templates yet.</p>
-              <a
-                href="/settings/email-templates"
-                className="text-[13px] text-accent hover:opacity-80 transition-opacity mt-1"
-              >
-                Create one in Settings →
-              </a>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => select(t.id)}
-                  disabled={pending}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left disabled:opacity-60"
-                >
-                  <Checkbox checked={selectedId === t.id} />
-                  <span className="flex-1 min-w-0">
-                    <p className="text-[13px] truncate">{t.name}</p>
-                    <p className="text-[12px] text-subtle truncate">{t.subject}</p>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="p-3 border-t border-border flex items-center gap-2">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] text-subtle hover:bg-muted transition-colors"
-          >
-            <ArrowLeft size={14} strokeWidth={2} />
-            Back
-          </button>
-          <div className="flex-1" />
-          <button
-            onClick={() => setConfirming(true)}
-            disabled={!selectedId}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Finish
-            <Send size={14} strokeWidth={2} />
-          </button>
-        </div>
+    <div className="flex flex-col h-full max-w-3xl mx-auto">
+      <div className="px-6 pt-6 pb-2">
+        <h2 className="text-[15px] font-medium">Steps</h2>
+        <p className="text-[13px] text-subtle mt-1">
+          Each step sends after a delay from enrollment. Write content for every variant within a step.
+        </p>
       </div>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="h-11 shrink-0 flex items-center px-6 border-b border-border">
-          <span className="text-[13px] font-medium">Preview</span>
-          {preview?.previewedFor && (
-            <span className="text-[12px] text-subtle ml-2">merged for {preview.previewedFor}</span>
-          )}
-        </div>
-        <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
-          {!selectedId ? (
-            <p className="text-[13px] text-subtle text-center py-8">Pick a template to preview it.</p>
-          ) : !preview ? (
-            <p className="text-[13px] text-subtle text-center py-8">Loading preview…</p>
-          ) : (
-            <div className="max-w-2xl">
-              {!preview.previewedFor && (
-                <p className="text-[12px] text-subtle mb-3">
-                  No recipients yet — showing raw template with unmerged {"{{"}variables{"}}"}.
-                </p>
-              )}
-              <p className="text-[13px] font-medium mb-2">{preview.subject}</p>
-              <div
-                className="text-[13px] rounded-md border border-border p-4 bg-surface [&_a]:text-accent"
-                dangerouslySetInnerHTML={{ __html: preview.bodyHtml }}
-              />
-            </div>
-          )}
-        </div>
+      <div className="flex-1 min-h-0 overflow-auto px-6 py-2">
+        {!loaded ? (
+          <p className="text-[13px] text-subtle text-center py-8">Loading…</p>
+        ) : (
+          <div className="space-y-3">
+            {steps.map((s, i) => (
+              <div key={s.id} className="border border-border rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setExpandedStepId(expandedStepId === s.id ? null : s.id)}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left"
+                >
+                  {expandedStepId === s.id ? (
+                    <ChevronDown size={14} strokeWidth={1.75} className="text-subtle shrink-0" />
+                  ) : (
+                    <ChevronRight size={14} strokeWidth={1.75} className="text-subtle shrink-0" />
+                  )}
+                  <span className="text-[13px] font-medium">Step {i + 1}</span>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-subtle shrink-0">
+                    {stepDelayLabel(s.delayDays, s.delayHours)}
+                  </span>
+                  <div className="flex-1" />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeStep(s.id);
+                    }}
+                    disabled={pending}
+                    className="p-1 rounded text-subtle hover:text-red-400 transition-colors shrink-0"
+                  >
+                    <Trash2 size={13} strokeWidth={1.5} />
+                  </button>
+                </button>
+
+                {expandedStepId === s.id && (
+                  <div className="border-t border-border">
+                    <StepVariantGrid stepId={s.id} variants={variants} />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            <AddStepRow onAdd={addStep} pending={pending} />
+          </div>
+        )}
+      </div>
+
+      <div className="p-3 border-t border-border flex items-center gap-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] text-subtle hover:bg-muted transition-colors"
+        >
+          <ArrowLeft size={14} strokeWidth={2} />
+          Back
+        </button>
+        <div className="flex-1" />
+        <button
+          onClick={() => setConfirming(true)}
+          disabled={steps.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Finish
+          <Send size={14} strokeWidth={2} />
+        </button>
       </div>
 
       {confirming && (
@@ -596,6 +762,234 @@ function TemplateStep({
             setStarted(true);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function AddStepRow({ onAdd, pending }: { onAdd: (input: CampaignStepInput) => void; pending: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [delayDays, setDelayDays] = useState(0);
+  const [delayHours, setDelayHours] = useState(0);
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border border-dashed border-border text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors"
+      >
+        <Plus size={14} strokeWidth={2} />
+        Add step
+      </button>
+    );
+  }
+
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-[12px] text-subtle">Days after enrollment</span>
+          <input
+            type="number"
+            min={0}
+            value={delayDays}
+            onChange={(e) => setDelayDays(Number(e.target.value) || 0)}
+            className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent focus:border-accent transition-colors"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[12px] text-subtle">Hours</span>
+          <input
+            type="number"
+            min={0}
+            max={23}
+            value={delayHours}
+            onChange={(e) => setDelayHours(Number(e.target.value) || 0)}
+            className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent focus:border-accent transition-colors"
+          />
+        </label>
+      </div>
+      <div className="flex items-center justify-end gap-2 mt-4">
+        <button onClick={() => setOpen(false)} className="px-3 py-1.5 rounded-md text-[13px] text-subtle hover:bg-muted transition-colors">
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            onAdd({ delayDays: Math.max(0, delayDays), delayHours: Math.max(0, delayHours) });
+            setOpen(false);
+            setDelayDays(0);
+            setDelayHours(0);
+          }}
+          disabled={pending}
+          className="px-3 py-1.5 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+        >
+          Add step
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StepVariantGrid({ stepId, variants }: { stepId: string; variants: VariantRow[] }) {
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  // Derived, not stored: falls back to the first variant whenever the selection points at
+  // a variant that no longer exists (e.g. it was just deleted), without a setState-in-effect.
+  const activeVariantId = variants.some((v) => v.id === selectedVariantId) ? selectedVariantId! : variants[0]?.id ?? "";
+
+  if (variants.length === 0) {
+    return <p className="text-[13px] text-subtle text-center py-6 px-4">Add a variant first.</p>;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 px-3 pt-3">
+        {variants.map((v) => (
+          <button
+            key={v.id}
+            onClick={() => setSelectedVariantId(v.id)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] transition-colors ${
+              activeVariantId === v.id ? "bg-muted text-foreground font-medium" : "text-subtle hover:text-foreground"
+            }`}
+          >
+            {v.name}
+          </button>
+        ))}
+      </div>
+      {activeVariantId && (
+        <div className="p-3">
+          <StepBodyEditor key={`${stepId}:${activeVariantId}`} stepId={stepId} variantId={activeVariantId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepBodyEditor({ stepId, variantId }: { stepId: string; variantId: string }) {
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [variables, setVariables] = useState<TemplateVariable[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [subject, setSubject] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [preview, setPreview] = useState<{ subject: string; bodyHtml: string; previewedFor: string | null } | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    Promise.all([listTemplates(), listTemplateVariables()]).then(([t, v]) => {
+      setTemplates(t);
+      setVariables(v);
+    });
+    // Every prop, including stepId/variantId, is fixed for this component's whole
+    // lifetime — the caller remounts it via a `key={stepId:variantId}` on switch, so no
+    // reset-on-prop-change effect is needed here; a fresh instance already starts fresh.
+  }, []);
+
+  function save() {
+    startTransition(async () => {
+      await setCampaignStepBody(stepId, variantId, {
+        templateId: templateId || null,
+        subject: templateId ? undefined : subject,
+        bodyHtml: templateId ? undefined : bodyHtml,
+      });
+      setSaved(true);
+    });
+  }
+
+  function togglePreview() {
+    if (showPreview) {
+      setShowPreview(false);
+      return;
+    }
+    previewCampaignStepBody(stepId, variantId).then(setPreview);
+    setShowPreview(true);
+  }
+
+  return (
+    <div className="space-y-3">
+      <label className="block">
+        <span className="text-[12px] text-subtle">Use a template</span>
+        <select
+          value={templateId}
+          onChange={(e) => {
+            setTemplateId(e.target.value);
+            setSaved(false);
+          }}
+          className="mt-1 w-full px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
+        >
+          <option value="" className="bg-background text-foreground">
+            Write custom email instead
+          </option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id} className="bg-background text-foreground">
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {!templateId && (
+        <>
+          <label className="block">
+            <span className="text-[12px] text-subtle">Subject</span>
+            <input
+              value={subject}
+              onChange={(e) => {
+                setSubject(e.target.value);
+                setSaved(false);
+              }}
+              placeholder="e.g. Following up, {{person.firstName}}"
+              className="w-full mt-1 px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent placeholder:text-subtle focus:border-accent transition-colors"
+            />
+          </label>
+          <div>
+            <span className="text-[12px] text-subtle">Body</span>
+            <RichTextEditor
+              value={bodyHtml}
+              onChange={(v) => {
+                setBodyHtml(v);
+                setSaved(false);
+              }}
+              placeholder="Write the email... use the {{ }} button to insert variables"
+              className="mt-1 h-48"
+              variables={variables}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={pending || (!templateId && !subject.trim())}
+          className="px-3 py-1.5 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saved ? "Saved" : "Save"}
+        </button>
+        <button
+          onClick={togglePreview}
+          className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+        >
+          {showPreview ? "Hide preview" : "Preview"}
+        </button>
+      </div>
+
+      {showPreview && (
+        <div className="mt-2 border border-border rounded-md p-3 bg-surface">
+          {!preview ? (
+            <p className="text-[13px] text-subtle">Loading preview…</p>
+          ) : (
+            <>
+              {!preview.previewedFor && (
+                <p className="text-[12px] text-subtle mb-2">
+                  No recipients yet — showing raw content with unmerged {"{{"}variables{"}}"}.
+                </p>
+              )}
+              <p className="text-[13px] font-medium mb-2">{preview.subject}</p>
+              <div className="text-[13px] [&_a]:text-accent" dangerouslySetInnerHTML={{ __html: preview.bodyHtml }} />
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -644,7 +1038,8 @@ function StartCampaignModal({
           <>
             <p className="text-[13px] text-subtle mt-2">
               {readiness.recipientCount} recipient{readiness.recipientCount === 1 ? "" : "s"} · {readiness.mailboxCount}{" "}
-              inbox{readiness.mailboxCount === 1 ? "" : "es"} · template &ldquo;{readiness.templateName}&rdquo;
+              inbox{readiness.mailboxCount === 1 ? "" : "es"} · {readiness.stepCount} step{readiness.stepCount === 1 ? "" : "s"} ·{" "}
+              {readiness.variantCount} variant{readiness.variantCount === 1 ? "" : "s"}
             </p>
             <div className="flex items-start gap-2 mt-3 text-[12px] text-subtle bg-muted rounded-md p-3">
               <Clock size={14} strokeWidth={1.5} className="shrink-0 mt-0.5" />
@@ -683,12 +1078,16 @@ function StartCampaignModal({
   );
 }
 
-function CampaignProgress({ campaignId }: { campaignId: string }) {
-  const [progress, setProgress] = useState<{ total: number; pending: number; queued: number; sent: number; failed: number } | null>(null);
+function CampaignProgressSummary({ campaignId }: { campaignId: string }) {
+  const [progress, setProgress] = useState<CampaignProgress | null>(null);
 
   useEffect(() => {
     getCampaignProgress(campaignId).then(setProgress);
   }, [campaignId]);
+
+  const pending = progress?.bySteps.reduce((sum, s) => sum + s.pending, 0) ?? 0;
+  const sent = progress?.bySteps.reduce((sum, s) => sum + s.sent, 0) ?? 0;
+  const failed = progress?.bySteps.reduce((sum, s) => sum + s.failed, 0) ?? 0;
 
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-6">
@@ -696,12 +1095,13 @@ function CampaignProgress({ campaignId }: { campaignId: string }) {
       <p className="text-[15px] font-medium mt-3">Campaign started</p>
       {progress && (
         <p className="text-[13px] text-subtle mt-1">
-          {progress.sent} sent · {progress.queued + progress.pending} pending
-          {progress.failed > 0 ? ` · ${progress.failed} failed` : ""} of {progress.total}
+          {sent} sent · {pending} pending
+          {failed > 0 ? ` · ${failed} failed` : ""} · {progress.enrolled} of {progress.total} enrolled
         </p>
       )}
       <p className="text-[12px] text-subtle mt-3 max-w-sm">
-        Sends are trickling out in the background, 30–60s apart. Refresh this page to see updated progress.
+        Sends are trickling out in the background. New recipients added to this campaign are enrolled and sent to
+        automatically — no need to restart. See full progress on the campaign dashboard.
       </p>
     </div>
   );
