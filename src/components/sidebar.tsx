@@ -30,7 +30,6 @@ import {
   Megaphone,
   MailCheck,
   List,
-  Boxes,
   Sun,
   Moon,
   Search,
@@ -485,13 +484,6 @@ export function Sidebar() {
               label="Lists"
               icon={List}
               active={pathname === "/lists" || pathname.startsWith("/lists/")}
-              collapsed={collapsed}
-            />
-            <NavLink
-              href="/objects"
-              label="Objects"
-              icon={Boxes}
-              active={pathname === "/objects" || pathname.startsWith("/objects/")}
               collapsed={collapsed}
             />
           </nav>
