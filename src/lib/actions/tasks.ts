@@ -151,7 +151,7 @@ export async function toggleTask(id: string) {
 
   const task = await db.task.findUniqueOrThrow({ where: { id, workspaceId } });
   const done = !task.done;
-  await db.task.update({ where: { id, workspaceId }, data: { done } });
+  await db.task.update({ where: { id, workspaceId }, data: { done, completedAt: done ? new Date() : null } });
 
   if (done) {
     await db.activity.create({

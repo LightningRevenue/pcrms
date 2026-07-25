@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type {
   Call,
+  CallOpportunity,
   Email,
   EmailOpen,
   EmailOpportunity,
@@ -62,7 +63,7 @@ export function ContactTabs({
   notes: (Note & { createdBy: User | null; opportunities: (NoteOpportunity & { opportunity: Opportunity })[] })[];
   opportunities: Opportunity[];
   mailboxes: MailboxOption[];
-  calls: (Call & { createdBy: User | null })[];
+  calls: (Call & { createdBy: User | null; opportunities: CallOpportunity[] })[];
   users?: { id: string; name: string | null; email: string | null }[];
 }) {
   const searchParams = useSearchParams();
@@ -110,7 +111,7 @@ export function ContactTabs({
             mailboxes={mailboxes}
           />
         ) : active === "calls" ? (
-          <ContactCallsTab calls={calls} />
+          <ContactCallsTab calls={calls} personId={personId} opportunities={opportunities} />
         ) : (
           <p className="text-[13px] text-subtle">Coming soon.</p>
         )}

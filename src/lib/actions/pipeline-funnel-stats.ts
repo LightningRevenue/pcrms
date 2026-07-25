@@ -92,31 +92,43 @@ export type ForecastStats = {
   winRatePct: number | null;
 };
 
-// Deliberately simple: total open-deal value times the overall win rate (getWinRate) —
-// not a per-stage probability curve, since nothing in the schema defines per-stage odds and
-// guessing them would be worse than this one honest, easily-explained number.
+// Per-stage when a stage has an explicit `probability` set (stageValue × probability/100);
+// falls back to the blended overall win rate for any stage left unset — so a workspace that
+// never touches probabilities gets the same number as before, and one that sets probabilities
+// on some stages gets a more accurate forecast without needing every stage configured.
 export async function getForecast(): Promise<ForecastStats> {
   const ctx = await requireWorkspace();
   const { workspaceId } = ctx;
 
-  const stages = await db.pipelineStage.findMany({ where: { workspaceId }, select: { label: true, outcome: true } });
-  const openLabels = stages.filter((s) => s.outcome === "open").map((s) => s.label);
+  const stages = await db.pipelineStage.findMany({
+    where: { workspaceId },
+    select: { label: true, outcome: true, probability: true },
+  });
+  const openStages = stages.filter((s) => s.outcome === "open");
+  const openLabels = openStages.map((s) => s.label);
 
   const [open, winRate] = await Promise.all([
     db.opportunity.findMany({
       where: { workspaceId, ...opportunityVisibilityFilter(ctx), stage: { in: openLabels } },
-      select: { value: true },
+      select: { value: true, stage: true },
     }),
     getWinRate(),
   ]);
 
   const openValue = open.reduce((sum, o) => sum + o.value, 0);
   const rate = winRate.winRatePct;
+  const probabilityByStage = new Map(openStages.map((s) => [s.label, s.probability]));
+
+  const weightedValue = open.reduce((sum, o) => {
+    const stageProbability = probabilityByStage.get(o.stage);
+    const pct = stageProbability ?? rate;
+    return pct === null || pct === undefined ? sum : sum + o.value * (pct / 100);
+  }, 0);
 
   return {
     openValue,
     openCount: open.length,
-    weightedValue: rate === null ? 0 : Math.round(openValue * (rate / 100)),
+    weightedValue: Math.round(weightedValue),
     winRatePct: rate,
   };
 }

@@ -8,7 +8,7 @@ import { FieldRow } from "@/components/field-row";
 import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
 import { UnsubscribeToggle } from "@/components/unsubscribe-toggle";
-import { setOpportunityOwner } from "@/lib/actions/opportunities";
+import { setOpportunityOwner, setExpectedCloseDate } from "@/lib/actions/opportunities";
 import type { OpportunityRow, OpportunityStage } from "@/components/opportunities-view";
 import { useContactHref } from "@/lib/view-mode";
 
@@ -63,6 +63,12 @@ export function OpportunityDetailPanel({
     setOpportunityOwner(opportunity.id, ownerId);
   }
 
+  function changeExpectedCloseDate(value: string) {
+    setExpectedCloseDate(opportunity.id, value ? new Date(value) : null);
+  }
+
+  const isOpen = currentStage?.outcome === "open";
+
   return (
     <aside className="w-80 shrink-0 border-r border-border h-[calc(100vh-3.5rem-2.75rem)] overflow-y-auto px-5 py-6">
       <div className="size-14 rounded-lg bg-muted border border-border flex items-center justify-center text-[18px] font-medium text-subtle">
@@ -104,6 +110,20 @@ export function OpportunityDetailPanel({
             label="Close date"
             value={opportunity.closeDate ? opportunity.closeDate.toLocaleDateString() : "—"}
           />
+          {isOpen && (
+            <div className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
+              <div className="flex items-center gap-2 w-28 shrink-0 text-[13px] text-subtle">
+                <CalendarDays size={14} strokeWidth={1.75} />
+                Expected close
+              </div>
+              <input
+                type="date"
+                defaultValue={opportunity.expectedCloseDate ? opportunity.expectedCloseDate.toISOString().slice(0, 10) : ""}
+                onChange={(e) => changeExpectedCloseDate(e.target.value)}
+                className="flex-1 bg-transparent outline-none text-[13px] border-b border-transparent hover:border-border focus:border-accent transition-colors"
+              />
+            </div>
+          )}
         </FieldSection>
 
         <FieldSection title="Relations">

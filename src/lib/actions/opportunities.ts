@@ -279,6 +279,13 @@ export async function setOpportunityOwner(id: string, ownerId: string | null) {
   revalidatePath(`/deals/${id}`);
 }
 
+export async function setExpectedCloseDate(id: string, date: Date | null) {
+  const { workspaceId } = await requireWorkspace();
+  await db.opportunity.update({ where: { id, workspaceId }, data: { expectedCloseDate: date } });
+  revalidatePath("/deals");
+  revalidatePath(`/deals/${id}`);
+}
+
 export async function deleteOpportunity(id: string) {
   const { workspaceId } = await requireWorkspace();
 

@@ -271,8 +271,15 @@ export async function cancelPendingCampaignStepsOnReply(personId: string, worksp
   });
   if (members.length === 0) return;
 
+  const memberIds = members.map((m) => m.id);
+
+  await db.campaignMember.updateMany({
+    where: { id: { in: memberIds }, workspaceId, repliedAt: null },
+    data: { repliedAt: new Date() },
+  });
+
   await db.campaignStepRun.updateMany({
-    where: { workspaceId, memberId: { in: members.map((m) => m.id) }, status: "pending" },
+    where: { workspaceId, memberId: { in: memberIds }, status: "pending" },
     data: { status: "skipped" },
   });
 

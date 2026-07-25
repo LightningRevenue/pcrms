@@ -90,7 +90,7 @@ export default async function LeadDetailPage({
     db.call.findMany({
       where: { workspaceId, personId: id },
       orderBy: { startedAt: "desc" },
-      include: { createdBy: true },
+      include: { createdBy: true, opportunities: true },
     }),
     listCompanyLinksForPerson(id),
     listOpportunityLinksForPerson(id),

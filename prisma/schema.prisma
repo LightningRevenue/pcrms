@@ -52,6 +52,7 @@ model Workspace {
   emails                 Email[]
   emailOpportunities     EmailOpportunity[]
   taskOpportunities      TaskOpportunity[]
+  callOpportunities      CallOpportunity[]
   emailTemplates         EmailTemplate[]
   playbooks              Playbook[]
   playbookSections       PlaybookSection[]
@@ -65,6 +66,7 @@ model Workspace {
   workflows              Workflow[]
   dashboards             Dashboard[]
   customReports          CustomReport[]
+  customDashboards       CustomDashboard[]
   emailOpens             EmailOpen[]
   notes                  Note[]
   noteOpportunities      NoteOpportunity[]
@@ -203,6 +205,7 @@ model User {
   tasks                Task[]
   ownedOpportunities   Opportunity[]           @relation("OpportunityOwner")
   createdOpportunities Opportunity[]           @relation("OpportunityCreatedBy")
+  ownedCompanies       Company[]               @relation("CompanyOwner")
   notes                Note[]
   noteMentions         NoteMention[]
   sequences            Sequence[]
@@ -217,6 +220,7 @@ model User {
   calls                Call[]
   playbooks            Playbook[]
   customReports        CustomReport[]
+  customDashboards     CustomDashboard[]
   handledGdprRequests  GdprRequest[]
 }
 
@@ -323,6 +327,12 @@ model Company {
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  // No UI to set this yet (schema-only for now) — every Company reports as "Unowned" until a
+  // future pass adds the picker, mirroring Person/Opportunity's ownerId shape so reports can
+  // already group by it once one exists.
+  ownerId String?
+  owner   User?   @relation("CompanyOwner", fields: [ownerId], references: [id])
 
   importBatchId String?
   importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
@@ -451,6 +461,7 @@ model Task {
   priority    String    @default("medium") // "low" | "medium" | "high"
   dueAt       DateTime?
   done        Boolean   @default(false)
+  completedAt DateTime?
   createdAt   DateTime  @default(now())
 
   personId String
@@ -473,9 +484,12 @@ model Opportunity {
   name      String
   value     Int       @default(0)
   stage     String    @default("New")
-  closeDate DateTime?
-  createdAt DateTime  @default(now())
-  deletedAt DateTime?
+  closeDate DateTime? // set only by updateOpportunityStage when the deal reaches a won/lost stage — "date it actually closed"
+  // User-settable while the deal is open, for forecasting — distinct from closeDate, which is
+  // only ever written once the deal actually closes.
+  expectedCloseDate DateTime?
+  createdAt         DateTime  @default(now())
+  deletedAt         DateTime?
 
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
@@ -498,6 +512,7 @@ model Opportunity {
   tasks  TaskOpportunity[]
   notes  NoteOpportunity[]
   people OpportunityPerson[]
+  calls  CallOpportunity[]
 
   @@index([workspaceId])
   @@index([deletedAt])
@@ -526,7 +541,10 @@ model PipelineStage {
   label     String
   order     Int      @default(0)
   outcome   String   @default("open") // "open" | "won" | "lost"
-  createdAt DateTime @default(now())
+  // 0-100 win probability for this stage, used by getForecast() for a per-stage weighted
+  // pipeline number — null means "not set", falls back to the blended workspace win rate.
+  probability Int?
+  createdAt   DateTime @default(now())
 
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -864,6 +882,11 @@ model Call {
   recordingUrl         String?
   recordingDurationSec Int?
 
+  // Sales outcome, set manually by the rep after the call — distinct from `status`, which is
+  // just the Twilio connection state. Null until set. "interested" | "not-interested" |
+  // "voicemail" | "callback" | "no-answer" | "wrong-number"
+  disposition String?
+
   personId String?
   person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
 
@@ -873,8 +896,26 @@ model Call {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  opportunities CallOpportunity[]
+
   @@index([personId])
   @@index([twilioCallSid])
+  @@index([workspaceId])
+}
+
+// Many-to-many: a call can be linked to a deal it relates to — mirrors TaskOpportunity/
+// EmailOpportunity/NoteOpportunity exactly.
+model CallOpportunity {
+  callId        String
+  call          Call        @relation(fields: [callId], references: [id], onDelete: Cascade)
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([callId, opportunityId])
+  @@index([opportunityId])
   @@index([workspaceId])
 }
 
@@ -963,7 +1004,9 @@ model CustomReport {
   filters   Json // CustomReportFilter[] — see custom-reports.ts for the shape
   groupBy   String? // a field name from that entity's registry, or null for an ungrouped total
   aggregate String  @default("count") // "count" | "sum_value" (sum only valid when entity = "opportunity")
-  display   String  @default("table") // "table" | "bar" | "line"
+  display   String  @default("table") // "table" | "bar" | "line" | "pie"
+  // "day" | "week" | "month" | "year" — only meaningful when groupBy points at a date field
+  dateGranularity String @default("day")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -975,6 +1018,48 @@ model CustomReport {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+}
+
+// A user-composed page of report widgets, each with its own independent entity/filters/
+// grouping/display — deliberately not a collection of CustomReport references, so a widget
+// can't go stale/break if its "parent" report is edited or deleted elsewhere. Mirrors
+// CustomReport's config shape field-for-field so runCustomReport's executor works unchanged.
+model CustomDashboard {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  widgets     DashboardWidget[]
+
+  @@index([workspaceId])
+}
+
+model DashboardWidget {
+  id     String @id @default(cuid())
+  name   String
+  entity String // "person" | "opportunity" | "task" | "activity" | "call" | "email"
+
+  filters   Json // CustomReportFilter[] — same shape as CustomReport.filters
+  groupBy   String?
+  aggregate String @default("count")
+  display   String @default("table")
+  dateGranularity String @default("day")
+
+  // react-grid-layout position/size in grid units
+  x Int @default(0)
+  y Int @default(0)
+  w Int @default(4)
+  h Int @default(4)
+
+  dashboardId String
+  dashboard   CustomDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId])
 }
 
 model EmailOpen {
@@ -1223,6 +1308,10 @@ model CampaignMember {
   // campaign-runner.ts) — what makes a late-added member self-enroll on a reactive campaign.
   enrolledAt DateTime?
 
+  // Set by cancelPendingCampaignStepsOnReply when a reply from this person is detected —
+  // remaining pending steps get skipped at the same time, mirroring SequenceEnrollment.
+  repliedAt DateTime?
+
   runs   CampaignStepRun[]
   emails Email[]
 
@@ -1323,6 +1412,9 @@ model SequenceEnrollment {
   status      String    @default("active") // "active" | "completed" | "cancelled"
   enrolledAt  DateTime  @default(now())
   completedAt DateTime?
+  // Set by cancelActiveEmailStepsOnReply the first time a reply from this person is detected
+  // while enrolled — remaining pending email steps get skipped at the same time.
+  repliedAt   DateTime?
 
   sequenceId String
   sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)

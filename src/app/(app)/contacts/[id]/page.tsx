@@ -63,7 +63,7 @@ export default async function ContactDetailPage({
     db.call.findMany({
       where: { workspaceId, personId: id },
       orderBy: { startedAt: "desc" },
-      include: { createdBy: true },
+      include: { createdBy: true, opportunities: true },
     }),
   ]);
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, X, Trash2, Table2, BarChart3, LineChart } from "lucide-react";
+import { ArrowLeft, Plus, X, Trash2, Table2, BarChart3, LineChart, PieChart } from "lucide-react";
 import {
   ENTITY_REGISTRY,
   getEntityDef,
@@ -20,6 +20,7 @@ import {
   runCustomReport,
   type Aggregate,
   type Display,
+  type DateGranularity,
   type ReportResult,
 } from "@/lib/actions/custom-reports";
 import { ReportResultView } from "@/components/report-result-view";
@@ -31,9 +32,33 @@ const ENTITY_OPTIONS = Object.entries(ENTITY_REGISTRY) as [ReportEntity, (typeof
 export function ReportBuilder({
   users,
   existing,
+  onSave,
+  onDelete,
 }: {
   users: WorkspaceUser[];
-  existing?: { id: string; name: string; entity: ReportEntity; filters: CustomReportFilter[]; groupBy: string | null; aggregate: Aggregate; display: Display };
+  existing?: {
+    id: string;
+    name: string;
+    entity: ReportEntity;
+    filters: CustomReportFilter[];
+    groupBy: string | null;
+    aggregate: Aggregate;
+    display: Display;
+    dateGranularity?: DateGranularity;
+  };
+  // Embedded mode (e.g. inside a dashboard-widget modal): when provided, save/delete call these
+  // instead of the standalone-report actions + router navigation, and the "back to dashboards"
+  // link is hidden since the builder isn't a full page in that context.
+  onSave?: (input: {
+    name: string;
+    entity: ReportEntity;
+    filters: CustomReportFilter[];
+    groupBy: string | null;
+    aggregate: Aggregate;
+    display: Display;
+    dateGranularity: DateGranularity;
+  }) => Promise<void>;
+  onDelete?: () => Promise<void>;
 }) {
   const router = useRouter();
   const [name, setName] = useState(existing?.name ?? "");
@@ -42,6 +67,7 @@ export function ReportBuilder({
   const [groupBy, setGroupBy] = useState<string | null>(existing?.groupBy ?? null);
   const [aggregate, setAggregate] = useState<Aggregate>(existing?.aggregate ?? "count");
   const [display, setDisplay] = useState<Display>(existing?.display ?? "table");
+  const [dateGranularity, setDateGranularity] = useState<DateGranularity>(existing?.dateGranularity ?? "day");
   const [result, setResult] = useState<ReportResult | null>(null);
   const [saving, startSaving] = useTransition();
   const [previewing, startPreview] = useTransition();
@@ -55,7 +81,18 @@ export function ReportBuilder({
     setEntity(next);
     setFilters([]);
     setGroupBy(null);
+    setDateGranularity("day");
     if (aggregate === "sum_value" && !ENTITY_REGISTRY[next].supportsSumValue) setAggregate("count");
+  }
+
+  function changeGroupBy(nextKey: string | null) {
+    setGroupBy(nextKey);
+    const nextDef = nextKey ? getFieldDef(entity, nextKey) : undefined;
+    if (nextDef?.kind !== "date") setDateGranularity("day");
+    // Line only makes sense for a date groupBy, pie only for a categorical one — reset display
+    // to table when the current choice no longer fits the new groupBy.
+    if (display === "line" && nextDef?.kind !== "date") setDisplay("table");
+    if (display === "pie" && nextDef?.kind === "date") setDisplay("table");
   }
 
   function addFilter(fieldKey: string) {
@@ -64,7 +101,7 @@ export function ReportBuilder({
     if (def.kind === "date") {
       setFilters((prev) => [...prev, { field: fieldKey, kind: "date", op: "last_30_days" }]);
     } else if (def.kind === "owner") {
-      setFilters((prev) => [...prev, { field: fieldKey, kind: "owner", value: users[0]?.id ?? "unowned" }]);
+      setFilters((prev) => [...prev, { field: fieldKey, kind: "owner", values: users[0] ? [users[0].id] : ["unowned"] }]);
     } else if (def.kind === "boolean") {
       setFilters((prev) => [...prev, { field: fieldKey, kind: "boolean", value: def.options?.[0]?.value ?? "true" }]);
     } else {
@@ -80,7 +117,10 @@ export function ReportBuilder({
     setFilters((prev) => prev.map((f, i) => (i === index ? ({ ...f, ...patch } as CustomReportFilter) : f)));
   }
 
-  const reportInput = useMemo(() => ({ entity, filters, groupBy, aggregate }), [entity, filters, groupBy, aggregate]);
+  const reportInput = useMemo(
+    () => ({ entity, filters, groupBy, aggregate, dateGranularity }),
+    [entity, filters, groupBy, aggregate, dateGranularity]
+  );
 
   useEffect(() => {
     startPreview(async () => {
@@ -97,7 +137,11 @@ export function ReportBuilder({
     setError(null);
     startSaving(async () => {
       try {
-        const input = { name, entity, filters, groupBy, aggregate, display };
+        const input = { name, entity, filters, groupBy, aggregate, display, dateGranularity };
+        if (onSave) {
+          await onSave(input);
+          return;
+        }
         if (existing) {
           await updateCustomReport(existing.id, input);
           router.push(`/dashboards/report/${existing.id}`);
@@ -115,19 +159,27 @@ export function ReportBuilder({
     if (!existing) return;
     if (!confirm(`Delete "${existing.name}"?`)) return;
     startSaving(async () => {
+      if (onDelete) {
+        await onDelete();
+        return;
+      }
       await deleteCustomReport(existing.id);
       router.push("/dashboards");
     });
   }
 
-  return (
-    <div className="px-8 py-10 max-w-3xl">
-      <Link href="/dashboards" className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
-        <ArrowLeft size={14} strokeWidth={1.75} />
-        Dashboards
-      </Link>
+  const embedded = onSave !== undefined;
 
-      <div className="flex items-center justify-between mt-4">
+  return (
+    <div className={embedded ? "" : "px-8 py-10 max-w-3xl"}>
+      {!embedded && (
+        <Link href="/dashboards" className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
+          <ArrowLeft size={14} strokeWidth={1.75} />
+          Dashboards
+        </Link>
+      )}
+
+      <div className={`flex items-center justify-between ${embedded ? "" : "mt-4"}`}>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -189,7 +241,7 @@ export function ReportBuilder({
           <div className="flex items-center gap-3">
             <select
               value={groupBy ?? ""}
-              onChange={(e) => setGroupBy(e.target.value || null)}
+              onChange={(e) => changeGroupBy(e.target.value || null)}
               className="px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
             >
               <option value="" className="bg-background text-foreground">No grouping (single total)</option>
@@ -199,6 +251,19 @@ export function ReportBuilder({
                 </option>
               ))}
             </select>
+
+            {groupBy && getFieldDef(entity, groupBy)?.kind === "date" && (
+              <select
+                value={dateGranularity}
+                onChange={(e) => setDateGranularity(e.target.value as DateGranularity)}
+                className="px-2.5 py-1.5 rounded-md border border-border text-[13px] outline-none bg-transparent"
+              >
+                <option value="day" className="bg-background text-foreground">By day</option>
+                <option value="week" className="bg-background text-foreground">By week</option>
+                <option value="month" className="bg-background text-foreground">By month</option>
+                <option value="year" className="bg-background text-foreground">By year</option>
+              </select>
+            )}
 
             {entityDef.supportsSumValue && (
               <select
@@ -217,17 +282,22 @@ export function ReportBuilder({
         <div>
           <p className="text-[12px] font-medium text-subtle uppercase tracking-wide mb-2">4. Display as</p>
           <div className="flex items-center gap-2">
-            {(
-              [
-                { key: "table" as Display, label: "Table", icon: Table2 },
-                { key: "bar" as Display, label: "Bar chart", icon: BarChart3 },
-                { key: "line" as Display, label: "Line", icon: LineChart },
-              ]
-            ).map((opt) => (
+            {(() => {
+              const groupByKind = groupBy ? getFieldDef(entity, groupBy)?.kind : undefined;
+              const isDateGroup = groupByKind === "date";
+              return (
+                [
+                  { key: "table" as Display, label: "Table", icon: Table2, disabled: false },
+                  { key: "bar" as Display, label: "Bar chart", icon: BarChart3, disabled: !groupBy },
+                  { key: "line" as Display, label: "Line", icon: LineChart, disabled: !isDateGroup },
+                  { key: "pie" as Display, label: "Pie chart", icon: PieChart, disabled: !groupBy || isDateGroup },
+                ]
+              );
+            })().map((opt) => (
               <button
                 key={opt.key}
                 onClick={() => setDisplay(opt.key)}
-                disabled={!groupBy && opt.key !== "table"}
+                disabled={opt.disabled}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[13px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   display === opt.key ? "border-accent bg-accent/5 text-accent" : "border-border hover:border-subtle"
                 }`}
@@ -281,28 +351,63 @@ function FilterRow({
       <span className="text-subtle w-32 shrink-0">{def.label}</span>
 
       {filter.kind === "date" && (
-        <select
-          value={filter.op}
-          onChange={(e) => onChange({ op: e.target.value as DateFilterOp })}
-          className="flex-1 bg-transparent outline-none"
-        >
-          {(Object.entries(DATE_FILTER_LABELS) as [DateFilterOp, string][]).map(([value, label]) => (
-            <option key={value} value={value} className="bg-background text-foreground">
-              {label}
-            </option>
-          ))}
-        </select>
+        <div className="flex-1 flex items-center gap-2">
+          <select
+            value={filter.op}
+            onChange={(e) => onChange({ op: e.target.value as DateFilterOp })}
+            className="bg-transparent outline-none"
+          >
+            {(Object.entries(DATE_FILTER_LABELS) as [DateFilterOp, string][]).map(([value, label]) => (
+              <option key={value} value={value} className="bg-background text-foreground">
+                {label}
+              </option>
+            ))}
+          </select>
+          {filter.op === "custom" && (
+            <>
+              <input
+                type="date"
+                value={filter.start ?? ""}
+                onChange={(e) => onChange({ start: e.target.value })}
+                className="bg-transparent outline-none border-b border-border text-[12px]"
+              />
+              <span className="text-subtle">–</span>
+              <input
+                type="date"
+                value={filter.end ?? ""}
+                onChange={(e) => onChange({ end: e.target.value })}
+                className="bg-transparent outline-none border-b border-border text-[12px]"
+              />
+            </>
+          )}
+        </div>
       )}
 
       {filter.kind === "owner" && (
-        <select value={filter.value} onChange={(e) => onChange({ value: e.target.value })} className="flex-1 bg-transparent outline-none">
-          <option value="unowned" className="bg-background text-foreground">No owner</option>
+        <div className="flex-1 flex flex-wrap gap-x-3 gap-y-1">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filter.values.includes("unowned")}
+              onChange={(e) =>
+                onChange({ values: e.target.checked ? [...filter.values, "unowned"] : filter.values.filter((v) => v !== "unowned") })
+              }
+            />
+            No owner
+          </label>
           {users.map((u) => (
-            <option key={u.id} value={u.id} className="bg-background text-foreground">
+            <label key={u.id} className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={filter.values.includes(u.id)}
+                onChange={(e) =>
+                  onChange({ values: e.target.checked ? [...filter.values, u.id] : filter.values.filter((v) => v !== u.id) })
+                }
+              />
               {u.name ?? u.email}
-            </option>
+            </label>
           ))}
-        </select>
+        </div>
       )}
 
       {(filter.kind === "enum" || filter.kind === "boolean") && def.options && (

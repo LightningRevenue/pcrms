@@ -1,11 +1,96 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, ArrowUpRight } from "lucide-react";
-import type { ReportResult, Display } from "@/lib/actions/custom-reports";
+import type { ReportResult, Display, ReportGroupRow } from "@/lib/actions/custom-reports";
 import { getCustomReportRows, type DrillDownRow } from "@/lib/actions/custom-reports";
 import type { ReportEntity, CustomReportFilter } from "@/lib/custom-report-registry";
+
+// Small fixed palette for the pie chart — this app has no multi-color chart system yet (just
+// a single --accent), so a hardcoded handful of hex values is simpler than building one for
+// this single use site.
+const PIE_COLORS = ["#4d7c5f", "#b08968", "#5c7cae", "#a35c7c", "#8a9a5b", "#c98a3c", "#7c6bab", "#4a9d9c"];
+
+function LineChartSvg({ groups }: { groups: ReportGroupRow[] }) {
+  const width = 560;
+  const height = 160;
+  const padding = 24;
+  const max = Math.max(1, ...groups.map((g) => g.value));
+  const stepX = groups.length > 1 ? (width - padding * 2) / (groups.length - 1) : 0;
+  const points = groups.map((g, i) => {
+    const x = padding + i * stepX;
+    const y = height - padding - (g.value / max) * (height - padding * 2);
+    return { x, y, g };
+  });
+  const path = points.map((p) => `${p.x},${p.y}`).join(" ");
+
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ minWidth: Math.max(320, groups.length * 40) }}>
+        <polyline points={path} fill="none" stroke="var(--accent)" strokeWidth={2} />
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r={3} fill="var(--accent)" />
+            <title>{`${p.g.label}: ${p.g.value.toLocaleString()}`}</title>
+          </g>
+        ))}
+      </svg>
+      <div className="flex justify-between text-[11px] text-subtle mt-1 px-1">
+        <span>{groups[0]?.label}</span>
+        {groups.length > 1 && <span>{groups[groups.length - 1]?.label}</span>}
+      </div>
+    </div>
+  );
+}
+
+function PieChartSvg({ groups, onSliceClick }: { groups: ReportGroupRow[]; onSliceClick?: (g: ReportGroupRow) => void }) {
+  const total = groups.reduce((sum, g) => sum + g.value, 0) || 1;
+  const radius = 60;
+  const circumference = 2 * Math.PI * radius;
+
+  const slices = groups.reduce<{ g: ReportGroupRow; dash: number; offset: number }[]>((acc, g) => {
+    const dash = (g.value / total) * circumference;
+    const offset = acc.length > 0 ? acc[acc.length - 1].offset + acc[acc.length - 1].dash : 0;
+    return [...acc, { g, dash, offset }];
+  }, []);
+
+  return (
+    <div className="flex items-center gap-6 flex-wrap">
+      <svg viewBox="0 0 140 140" className="w-full max-w-[140px] shrink-0">
+        <g transform="rotate(-90 70 70)">
+          {slices.map(({ g, dash, offset }, i) => (
+            <circle
+              key={g.rawValue}
+              cx={70}
+              cy={70}
+              r={radius}
+              fill="none"
+              stroke={PIE_COLORS[i % PIE_COLORS.length]}
+              strokeWidth={28}
+              strokeDasharray={`${dash} ${circumference - dash}`}
+              strokeDashoffset={-offset}
+              className={onSliceClick ? "cursor-pointer" : undefined}
+              onClick={onSliceClick ? () => onSliceClick(g) : undefined}
+            >
+              <title>{`${g.label}: ${g.value.toLocaleString()}`}</title>
+            </circle>
+          ))}
+        </g>
+      </svg>
+      <div className="space-y-1.5 min-w-0 flex-1">
+        {groups.map((g, i) => (
+          <div key={g.rawValue} className="flex items-center gap-2 text-[12px]">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+            <span className="truncate">{g.label}</span>
+            <span className="text-subtle tabular-nums shrink-0">{g.value.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function ReportResultView({
   result,
@@ -48,10 +133,14 @@ export function ReportResultView({
     );
   }
 
-  // bar and line both render as simple horizontal bars here — a "line" for a categorical
-  // group-by (owner/stage/enum) doesn't mean anything different from a bar; a true time
-  // series would need groupBy to bucket by day/week, which the date fields already do via
-  // bucketKey's day-granularity, so this reads fine as bars in both cases.
+  if (display === "line") {
+    return <LineChartSvg groups={result.groups} />;
+  }
+
+  if (display === "pie") {
+    return <PieChartSvg groups={result.groups} />;
+  }
+
   const max = Math.max(1, ...result.groups.map((g) => g.value));
   return (
     <div className="space-y-2">
@@ -114,6 +203,23 @@ export function ReportResultViewWithDrilldown({
             </button>
           ))}
         </div>
+      ) : display === "pie" ? (
+        <PieChartSvg groups={result.groups} onSliceClick={(g) => setActiveGroup(g)} />
+      ) : display === "line" ? (
+        <div className="space-y-2">
+          <LineChartSvg groups={result.groups} />
+          <div className="flex flex-wrap gap-2">
+            {result.groups.map((g) => (
+              <button
+                key={g.rawValue}
+                onClick={() => setActiveGroup(g)}
+                className="px-2 py-1 rounded text-[11px] border border-border hover:bg-muted/40 transition-colors"
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="space-y-2">
           {result.groups.map((g) => (
@@ -160,7 +266,17 @@ function GroupDrilldownPanel({
     getCustomReportRows({ entity, filters, groupBy, groupValue: group.rawValue }).then(setRows);
   }, [entity, filters, groupBy, group.rawValue]);
 
-  return (
+  // Portal straight to <body> — this panel only ever mounts from a click (activeGroup !== null
+  // in the parent), always after hydration, so `document` is guaranteed to exist here; no SSR
+  // guard needed. It's also used inside the dashboard grid, where react-grid-layout applies CSS
+  // transforms to every widget for drag positioning — a `transform` on any ancestor turns
+  // `position: fixed` into container-relative instead of viewport-relative, which would trap
+  // this panel inside the widget's small box. The portal escapes that regardless of call site.
+  // react-grid-layout applies CSS transforms to every widget for drag positioning. A
+  // `transform` on any ancestor turns `position: fixed` into container-relative instead of
+  // viewport-relative, which would trap this panel inside the widget's small box. Mounting via
+  // portal escapes that regardless of where the panel is rendered from.
+  return createPortal(
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
       <aside className="fixed right-0 top-0 h-screen w-96 bg-surface border-l border-border z-50 flex flex-col shadow-xl">
@@ -190,6 +306,7 @@ function GroupDrilldownPanel({
           )}
         </div>
       </aside>
-    </>
+    </>,
+    document.body
   );
 }

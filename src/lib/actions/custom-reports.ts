@@ -1,17 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireWorkspace, personVisibilityFilter, opportunityVisibilityFilter } from "@/lib/workspace";
+import { requireWorkspace, personVisibilityFilter, opportunityVisibilityFilter, companyVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import {
   getFieldDef,
   dateFilterToRange,
+  validateReportInput,
+  normalizeFilter,
+  isoWeekKey,
   type ReportEntity,
   type CustomReportFilter,
 } from "@/lib/custom-report-registry";
 
 export type Aggregate = "count" | "sum_value";
-export type Display = "table" | "bar" | "line";
+export type Display = "table" | "bar" | "line" | "pie";
+export type DateGranularity = "day" | "week" | "month" | "year";
 
 export type CreateCustomReportInput = {
   name: string;
@@ -20,6 +24,7 @@ export type CreateCustomReportInput = {
   groupBy: string | null;
   aggregate: Aggregate;
   display: Display;
+  dateGranularity?: DateGranularity;
 };
 
 export async function listCustomReports() {
@@ -32,25 +37,9 @@ export async function getCustomReport(id: string) {
   return db.customReport.findUnique({ where: { id, workspaceId } });
 }
 
-function validateInput(input: CreateCustomReportInput) {
-  const name = input.name.trim();
-  if (!name) throw new Error("Name is required");
-
-  for (const filter of input.filters) {
-    if (!getFieldDef(input.entity, filter.field)) throw new Error(`Unknown filter field: ${filter.field}`);
-  }
-  if (input.groupBy && !getFieldDef(input.entity, input.groupBy)?.groupable) {
-    throw new Error(`Field is not groupable: ${input.groupBy}`);
-  }
-  if (input.aggregate === "sum_value" && input.entity !== "opportunity") {
-    throw new Error("sum_value is only valid for deals");
-  }
-  return name;
-}
-
 export async function createCustomReport(input: CreateCustomReportInput) {
   const { userId, workspaceId } = await requireWorkspace();
-  const name = validateInput(input);
+  const name = validateReportInput(input);
 
   const report = await db.customReport.create({
     data: {
@@ -61,6 +50,7 @@ export async function createCustomReport(input: CreateCustomReportInput) {
       groupBy: input.groupBy,
       aggregate: input.aggregate,
       display: input.display,
+      dateGranularity: input.dateGranularity ?? "day",
       createdById: userId,
     },
   });
@@ -71,7 +61,7 @@ export async function createCustomReport(input: CreateCustomReportInput) {
 
 export async function updateCustomReport(id: string, input: CreateCustomReportInput) {
   const { workspaceId } = await requireWorkspace();
-  const name = validateInput(input);
+  const name = validateReportInput(input);
 
   await db.customReport.update({
     where: { id, workspaceId },
@@ -82,6 +72,7 @@ export async function updateCustomReport(id: string, input: CreateCustomReportIn
       groupBy: input.groupBy,
       aggregate: input.aggregate,
       display: input.display,
+      dateGranularity: input.dateGranularity ?? "day",
     },
   });
 
@@ -110,6 +101,8 @@ async function baseWhere(ctx: Ctx, entity: ReportEntity): Promise<Record<string,
       return { workspaceId, ...personVisibilityFilter(ctx) };
     case "opportunity":
       return { workspaceId, ...opportunityVisibilityFilter(ctx) };
+    case "company":
+      return { workspaceId, ...companyVisibilityFilter(ctx) };
     case "task":
     case "call":
     case "email":
@@ -118,23 +111,44 @@ async function baseWhere(ctx: Ctx, entity: ReportEntity): Promise<Record<string,
   }
 }
 
-function buildFilterWhere(entity: ReportEntity, filters: CustomReportFilter[]): Record<string, unknown> {
+function buildFilterWhere(entity: ReportEntity, rawFilters: CustomReportFilter[]): Record<string, unknown> {
   const where: Record<string, unknown> = {};
-  for (const filter of filters) {
+  for (const raw of rawFilters) {
+    const filter = normalizeFilter(raw);
     const def = getFieldDef(entity, filter.field);
     if (!def) continue; // already validated at write time, but stay defensive on read too
 
     if (filter.kind === "date") {
-      const range = dateFilterToRange(filter.op);
-      if (range) where[filter.field] = range;
+      const range = dateFilterToRange(filter.op, filter.start, filter.end);
+      if (range) where[filter.field] = range.lte ? { gte: range.gte, lte: range.lte } : { gte: range.gte };
       continue;
     }
     if (filter.kind === "owner") {
-      where[filter.field] = filter.value === "unowned" ? null : filter.value;
+      const realIds = filter.values.filter((v) => v !== "unowned");
+      const includesUnowned = filter.values.includes("unowned");
+      if (includesUnowned && realIds.length > 0) {
+        where.OR = [{ [filter.field]: null }, { [filter.field]: { in: realIds } }];
+      } else if (includesUnowned) {
+        where[filter.field] = null;
+      } else {
+        where[filter.field] = { in: realIds };
+      }
       continue;
     }
     if (filter.kind === "boolean") {
-      where[filter.field] = filter.value === "true";
+      // "opened" is derived from the `opens` relation, not a real column — filter via a
+      // some/none check on that relation instead of a scalar equality.
+      if (filter.field === "opened") {
+        where.opens = filter.value === "true" ? { some: {} } : { none: {} };
+        continue;
+      }
+      // "unsubscribedAt"-style fields are nullable dates standing in for a boolean (see
+      // person's unsubscribedAt FieldDef) — "true" means the date is set, "false" means null.
+      if (def.kind === "boolean" && def.booleanBackedByDate) {
+        where[filter.field] = filter.value === "true" ? { not: null } : null;
+      } else {
+        where[filter.field] = filter.value === "true";
+      }
       continue;
     }
     where[filter.field] = filter.value;
@@ -145,6 +159,7 @@ function buildFilterWhere(entity: ReportEntity, filters: CustomReportFilter[]): 
 const MODEL_BY_ENTITY = {
   person: "person",
   opportunity: "opportunity",
+  company: "company",
   task: "task",
   activity: "activity",
   call: "call",
@@ -168,11 +183,24 @@ async function resolveOwnerLabels(userIds: string[]): Promise<Map<string, string
 // Prisma `groupBy` — the entity/field set is small enough that this stays fast, and it avoids
 // six near-duplicate groupBy call sites (one per entity, since Prisma's groupBy is generated
 // per-model and can't be parameterized the way `db[modelName]` dynamic access can for reads).
+// Fields that aren't real scalar Prisma columns — "opened" is derived from the `opens` relation
+// (EmailOpen rows), so it needs its own select/read shape instead of the generic `{[field]:true}`.
+// Kept to this one field; anything with a similar shape in the future either denormalizes into a
+// real column (see the CampaignMember decision) or gets added here deliberately, not by default.
+const RELATION_DERIVED_FIELDS = new Set(["opened"]);
+
+async function resolveCompanyLabels(companyIds: string[]): Promise<Map<string, string>> {
+  if (companyIds.length === 0) return new Map();
+  const companies = await db.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } });
+  return new Map(companies.map((c) => [c.id, c.name]));
+}
+
 export async function runCustomReport(input: {
   entity: ReportEntity;
   filters: CustomReportFilter[];
   groupBy: string | null;
   aggregate: Aggregate;
+  dateGranularity?: DateGranularity;
 }): Promise<ReportResult> {
   const ctx = await requireWorkspace();
 
@@ -185,18 +213,23 @@ export async function runCustomReport(input: {
 
   const where = { ...(await baseWhere(ctx, input.entity)), ...buildFilterWhere(input.entity, input.filters) };
   const modelName = MODEL_BY_ENTITY[input.entity];
-  // db[modelName] is a controlled dynamic lookup into a fixed 6-entry map above, not an
+  // db[modelName] is a controlled dynamic lookup into a fixed 7-entry map above, not an
   // arbitrary user-supplied model name — TypeScript can't express "any Prisma delegate with a
   // findMany", so this one cast is deliberate rather than a hole in the validation above.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const model = (db as any)[modelName];
 
   const selectField = input.groupBy ?? undefined;
+  const isRelationField = selectField ? RELATION_DERIVED_FIELDS.has(selectField) : false;
+  // Prisma rejects an empty `select` outright — an ungrouped count needs no columns at all,
+  // so fall back to selecting `id` just to keep the object non-empty.
   const rows: Record<string, unknown>[] = await model.findMany({
     where,
     select: {
-      ...(selectField ? { [selectField]: true } : {}),
+      ...(selectField && !isRelationField ? { [selectField]: true } : {}),
+      ...(selectField === "opened" ? { opens: { select: { id: true }, take: 1 } } : {}),
       ...(input.aggregate === "sum_value" ? { value: true } : {}),
+      ...(selectField || input.aggregate === "sum_value" ? {} : { id: true }),
     },
   });
 
@@ -207,10 +240,11 @@ export async function runCustomReport(input: {
   }
 
   const fieldDef = getFieldDef(input.entity, input.groupBy)!;
+  const granularity = input.dateGranularity ?? "day";
   const buckets = new Map<string, number>();
   for (const row of rows) {
-    const raw = row[input.groupBy];
-    const key = bucketKey(raw, fieldDef.kind);
+    const raw = input.groupBy === "opened" ? (row.opens as unknown[]).length > 0 : row[input.groupBy];
+    const key = bucketKey(raw, fieldDef, granularity);
     const amount = input.aggregate === "sum_value" ? Number(row.value) || 0 : 1;
     buckets.set(key, (buckets.get(key) ?? 0) + amount);
   }
@@ -223,21 +257,47 @@ export async function runCustomReport(input: {
       rawValue: key,
       value,
     }));
+  } else if (input.groupBy === "companyId") {
+    const labels = await resolveCompanyLabels([...buckets.keys()].filter((k) => k !== "—"));
+    groups = [...buckets.entries()].map(([key, value]) => ({
+      label: key === "—" ? "No company" : labels.get(key) ?? "Unknown",
+      rawValue: key,
+      value,
+    }));
   } else if (fieldDef.options) {
     const optionLabels = new Map(fieldDef.options.map((o) => [o.value, o.label]));
     groups = [...buckets.entries()].map(([key, value]) => ({ label: optionLabels.get(key) ?? key, rawValue: key, value }));
+  } else if (fieldDef.kind === "boolean") {
+    const labels: Record<string, string> = { true: "Yes", false: "No", "—": "Unknown" };
+    groups = [...buckets.entries()].map(([key, value]) => ({ label: labels[key] ?? key, rawValue: key, value }));
   } else {
     groups = [...buckets.entries()].map(([key, value]) => ({ label: key, rawValue: key, value }));
   }
-  groups.sort((a, b) => b.value - a.value);
+  // Date groupBy sorts chronologically (bucket keys are ISO-prefix-sortable) so a line chart
+  // reads left-to-right in time order; every other kind sorts by value for the bar/table view.
+  if (fieldDef.kind === "date") {
+    groups.sort((a, b) => a.rawValue.localeCompare(b.rawValue));
+  } else {
+    groups.sort((a, b) => b.value - a.value);
+  }
 
   const total = groups.reduce((sum, g) => sum + g.value, 0);
   return { total, groups };
 }
 
-function bucketKey(raw: unknown, kind: string): string {
+function bucketKey(raw: unknown, fieldDef: { kind: string; booleanBackedByDate?: boolean }, granularity: DateGranularity): string {
   if (raw === null || raw === undefined) return "—";
-  if (kind === "date" && raw instanceof Date) return raw.toISOString().slice(0, 10); // day granularity
+  if (fieldDef.kind === "boolean" && fieldDef.booleanBackedByDate) {
+    return raw instanceof Date ? "true" : "false";
+  }
+  if (fieldDef.kind === "boolean") return String(raw);
+  if (fieldDef.kind === "date" && raw instanceof Date) {
+    if (granularity === "week") return isoWeekKey(raw);
+    if (granularity === "month") return raw.toISOString().slice(0, 7);
+    if (granularity === "year") return raw.toISOString().slice(0, 4);
+    return raw.toISOString().slice(0, 10); // day
+  }
+  if (typeof raw === "boolean") return String(raw);
   return String(raw);
 }
 
@@ -274,6 +334,10 @@ async function fetchRowsForDisplay(entity: ReportEntity, where: Record<string, u
     case "opportunity": {
       const rows = await db.opportunity.findMany({ where, orderBy: { createdAt: "desc" }, take, select: { id: true, name: true, value: true, stage: true } });
       return rows.map((o) => ({ id: o.id, title: o.name || "Untitled", subtitle: `${o.stage} · $${o.value.toLocaleString()}`, href: `/deals/${o.id}` }));
+    }
+    case "company": {
+      const rows = await db.company.findMany({ where, orderBy: { createdAt: "desc" }, take, select: { id: true, name: true, domain: true } });
+      return rows.map((c) => ({ id: c.id, title: c.name || "Untitled", subtitle: c.domain ?? "", href: `/companies/${c.id}` }));
     }
     case "task": {
       const rows = await db.task.findMany({ where, orderBy: { createdAt: "desc" }, take, select: { id: true, title: true, type: true, personId: true } });

@@ -22,6 +22,11 @@ export async function cancelActiveEmailStepsOnReply(personId: string, workspaceI
 
   const enrollmentIds = activeEnrollments.map((e) => e.id);
 
+  await db.sequenceEnrollment.updateMany({
+    where: { id: { in: enrollmentIds }, workspaceId, repliedAt: null },
+    data: { repliedAt: new Date() },
+  });
+
   await db.sequenceStepRun.updateMany({
     where: {
       workspaceId,
