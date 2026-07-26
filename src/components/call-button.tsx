@@ -11,6 +11,7 @@ export function CallButton({
   phone,
   name,
   compact = false,
+  renderTrigger,
 }: {
   personId: string;
   phone: string | null;
@@ -18,6 +19,10 @@ export function CallButton({
   // Icon-only, no label — used in the /lead/[id] quick-actions grid. Still shows the
   // in-progress label (ringing/timer) since that's live status, not a static caption.
   compact?: boolean;
+  // Replaces the default button with custom idle-state chrome (the phone number itself in
+  // the highlights bar). Live states still render the built-in hang-up button, so the
+  // Twilio device/state stays owned by this one component.
+  renderTrigger?: (props: { onCall: () => void; disabled: boolean; title: string }) => React.ReactNode;
 }) {
   const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
   const [state, setState] = useState<CallState>("idle");
@@ -111,12 +116,30 @@ export function CallButton({
     );
   }
 
+  const disabled = !phone || voiceReady === false;
+  const title = !phone
+    ? "This contact has no phone number"
+    : voiceReady === false
+      ? "Connect Twilio Voice in Settings first"
+      : `Call ${name}`;
+
+  if (renderTrigger) {
+    return (
+      <div className="relative">
+        {renderTrigger({ onCall: handleCall, disabled, title })}
+        {error && (
+          <p className="absolute left-0 top-full mt-1 w-56 text-[12px] text-red-400 whitespace-normal z-10">{error}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="relative">
       <button
         onClick={handleCall}
-        disabled={!phone || voiceReady === false}
-        title={!phone ? "This contact has no phone number" : voiceReady === false ? "Connect Twilio Voice in Settings first" : `Call ${name}`}
+        disabled={disabled}
+        title={title}
         className={
           compact
             ? "flex items-center justify-center size-9 rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"

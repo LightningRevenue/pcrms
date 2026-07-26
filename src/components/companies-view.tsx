@@ -20,8 +20,13 @@ import {
   Trash2,
   History,
   Check,
+  PencilLine,
+  X,
 } from "lucide-react";
 import { CreateCompanyPanel } from "@/components/create-company-panel";
+import { BulkFieldDialog } from "@/components/bulk-field-dialog";
+import { bulkUpdateCompanyField, type BulkCompanyField } from "@/lib/actions/bulk-fields";
+import { INDUSTRIES, COUNTRIES, REVENUE_RANGES, EMPLOYEE_BUCKETS } from "@/lib/firmographics";
 import { CompanyLogo } from "@/components/company-logo";
 import { deleteCompanies } from "@/lib/actions/companies";
 
@@ -159,6 +164,8 @@ export function CompaniesView({
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const { visible: visibleColumns, toggle: toggleColumn } = useVisibleColumns(customFields);
   const emptyLinkedin = companies.filter((c) => !c.linkedin).length;
   const withAddress = companies.filter((c) => c.address).length;
@@ -201,29 +208,18 @@ export function CompaniesView({
           <ChevronDown size={13} strokeWidth={1.75} />
         </button>
 
+        {/* Selection actions live in the floating bar at the bottom (same as /contacts), so the
+            toolbar keeps its own controls instead of swapping them out. */}
         <div className="flex items-center gap-1">
-          {selected.size > 0 ? (
-            <button
-              onClick={handleDeleteSelected}
-              disabled={pending}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-            >
-              <Trash2 size={14} strokeWidth={1.75} />
-              Delete {selected.size} selected
-            </button>
-          ) : (
-            <>
-              <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-                <ListFilter size={14} strokeWidth={1.75} />
-                Filter
-              </button>
-              <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-                <ArrowUpDown size={14} strokeWidth={1.75} />
-                Sort
-              </button>
-              <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
-            </>
-          )}
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
+            <ListFilter size={14} strokeWidth={1.75} />
+            Filter
+          </button>
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
+            <ArrowUpDown size={14} strokeWidth={1.75} />
+            Sort
+          </button>
+          <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
         </div>
       </div>
 
@@ -249,6 +245,67 @@ export function CompaniesView({
           Not empty of Address <strong className="text-foreground">{withAddress}</strong>
         </span>
       </div>
+
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 px-2 py-1.5 rounded-xl border border-border bg-surface shadow-xl">
+          <span className="text-[13px] px-2 text-subtle">{selected.size} selected</span>
+          <div className="w-px h-5 bg-border" />
+          <button
+            onClick={() => setBulkEditing(true)}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <PencilLine size={14} strokeWidth={1.75} />
+            Edit fields
+          </button>
+          <button
+            onClick={handleDeleteSelected}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+          >
+            <Trash2 size={14} strokeWidth={1.75} />
+            Delete
+          </button>
+          <div className="w-px h-5 bg-border" />
+          <button
+            onClick={() => setSelected(new Set())}
+            className="p-1.5 rounded-lg text-subtle hover:bg-muted hover:text-foreground transition-colors"
+            title="Clear selection"
+          >
+            <X size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+
+      {bulkEditing && (
+        <BulkFieldDialog
+          title={`Edit ${selected.size} compan${selected.size === 1 ? "y" : "ies"}`}
+          fields={[
+            { field: "industry", label: "Industry", options: INDUSTRIES },
+            { field: "country", label: "Country", options: COUNTRIES },
+            { field: "revenueRange", label: "Revenue Range", options: REVENUE_RANGES },
+            { field: "employeeCount", label: "Employees", options: EMPLOYEE_BUCKETS.map((b) => b.label) },
+          ]}
+          onApply={async (field, value) => {
+            const res = await bulkUpdateCompanyField([...selected], field as BulkCompanyField, value);
+            setBulkNotice(`Updated ${res.updated} compan${res.updated === 1 ? "y" : "ies"}.`);
+            setSelected(new Set());
+          }}
+          onClose={() => setBulkEditing(false)}
+        />
+      )}
+
+      {bulkNotice && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 px-3 py-2 rounded-lg border border-border bg-surface shadow-xl text-[12.5px]">
+          {bulkNotice}
+          <button
+            onClick={() => setBulkNotice(null)}
+            className="ml-3 text-subtle hover:text-foreground transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {creating && <CreateCompanyPanel onClose={() => setCreating(false)} />}
     </div>

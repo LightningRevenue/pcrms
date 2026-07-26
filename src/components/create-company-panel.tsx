@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useSession } from "next-auth/react";
-import { X, Link2, MapPin, Banknote, CalendarDays, UserCircle } from "lucide-react";
+import { X, Link2, MapPin, Banknote, CalendarDays, UserCircle, Briefcase, Users, Globe2 } from "lucide-react";
+import { INDUSTRIES, COUNTRIES, EMPLOYEE_BUCKETS } from "@/lib/firmographics";
 import { createCompany } from "@/lib/actions/companies";
 import { FieldSection } from "@/components/field-section";
 
@@ -12,12 +13,15 @@ function EditableField({
   value,
   onChange,
   placeholder,
+  options,
 }: {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  /** Renders a picker instead of a free-text input. */
+  options?: readonly string[];
 }) {
   return (
     <div className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
@@ -25,12 +29,29 @@ function EditableField({
         <Icon size={14} strokeWidth={1.75} />
         {label}
       </div>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="flex-1 min-w-0 bg-transparent text-[13px] outline-none placeholder:text-subtle"
-      />
+      {options ? (
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 min-w-0 bg-transparent text-[13px] outline-none border-b border-border"
+        >
+          <option value="" className="bg-background text-foreground">
+            {placeholder || "Empty"}
+          </option>
+          {options.map((o) => (
+            <option key={o} value={o} className="bg-background text-foreground">
+              {o}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 min-w-0 bg-transparent text-[13px] outline-none placeholder:text-subtle"
+        />
+      )}
     </div>
   );
 }
@@ -42,6 +63,9 @@ export function CreateCompanyPanel({ onClose }: { onClose: () => void }) {
   const [address, setAddress] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [annualRevenue, setAnnualRevenue] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [country, setCountry] = useState("");
+  const [employeeCount, setEmployeeCount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -53,7 +77,7 @@ export function CreateCompanyPanel({ onClose }: { onClose: () => void }) {
     setError(null);
     startTransition(async () => {
       try {
-        await createCompany({ name, domain, address, linkedin, annualRevenue });
+        await createCompany({ name, domain, address, linkedin, annualRevenue, industry, country, employeeCount });
         onClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
@@ -87,6 +111,16 @@ export function CreateCompanyPanel({ onClose }: { onClose: () => void }) {
 
           <FieldSection title="Business">
             <EditableField icon={Banknote} label="Revenue" value={annualRevenue} onChange={setAnnualRevenue} placeholder="Annual revenue" />
+            <EditableField icon={Briefcase} label="Industry" value={industry} onChange={setIndustry} placeholder="Industry" options={INDUSTRIES} />
+            <EditableField
+              icon={Users}
+              label="Employees"
+              value={employeeCount}
+              onChange={setEmployeeCount}
+              placeholder="Employee count"
+              options={EMPLOYEE_BUCKETS.map((b) => b.label)}
+            />
+            <EditableField icon={Globe2} label="Country" value={country} onChange={setCountry} placeholder="Country" options={COUNTRIES} />
           </FieldSection>
 
           <FieldSection title="Contact">

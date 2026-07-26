@@ -6,16 +6,7 @@ import { db } from "@/lib/db";
 import { getTwilioAccount } from "@/lib/actions/twilio";
 import { isVoiceReady } from "@/lib/twilio-helpers";
 import { assertLimit } from "@/lib/entitlements";
-
-export const CALL_DISPOSITIONS = [
-  { value: "interested", label: "Interested" },
-  { value: "not-interested", label: "Not interested" },
-  { value: "voicemail", label: "Voicemail" },
-  { value: "callback", label: "Callback" },
-  { value: "no-answer", label: "No answer" },
-  { value: "wrong-number", label: "Wrong number" },
-] as const;
-type CallDisposition = (typeof CALL_DISPOSITIONS)[number]["value"];
+import { CALL_DISPOSITIONS, type CallDisposition } from "@/lib/call-dispositions";
 
 export async function getVoiceStatus() {
   const account = await getTwilioAccount();

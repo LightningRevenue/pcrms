@@ -39,6 +39,8 @@ model Workspace {
 
   members WorkspaceMember[]
   invites WorkspaceInvite[]
+  apiKeys ApiKey[]
+  scheduledEmails ScheduledEmail[]
 
   companies              Company[]
   people                 Person[]
@@ -191,6 +193,7 @@ model User {
   isPlatformAdmin      Boolean                 @default(false)
   workspaceMember      WorkspaceMember?
   sentInvites          WorkspaceInvite[]
+  createdApiKeys       ApiKey[]
   accounts             Account[]
   sessions             Session[]
   people               Person[]                @relation("PersonCreatedBy")
@@ -198,6 +201,7 @@ model User {
   companies            Company[]
   activity             Activity[]
   sentEmails           Email[]
+  scheduledEmails      ScheduledEmail[]
   emailTemplates       EmailTemplate[]
   notifications        Notification[]
   workflows            Workflow[]
@@ -321,9 +325,24 @@ model Company {
   domain        String?
   address       String?
   linkedin      String?
+  // Free text, kept as-is for display ("$1M-$5M", "~2.5M", whatever was imported). Not
+  // filterable by range — revenueRange below is the bucketed, filterable counterpart.
   annualRevenue String?
   createdAt     DateTime  @default(now())
   deletedAt     DateTime?
+
+  // Firmographics for Lead Intelligence filtering. All optional and never auto-populated —
+  // they stay null until set by import/API/manual edit, so nothing existing changes.
+  // industry/country are free text matched against the curated pickers in lib/firmographics.ts;
+  // values outside those lists still work and still show up as filter options.
+  industry      String?
+  country       String?
+  // One of REVENUE_RANGES (lib/firmographics.ts) — a bucket, so it can be filtered with `in`,
+  // unlike annualRevenue's free text.
+  revenueRange  String?
+  // Actual company size. Distinct from the derived "contacts at this company" count shown in
+  // Lead Intelligence, which counts Person rows in this CRM, not real headcount.
+  employeeCount Int?
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
@@ -346,6 +365,10 @@ model Company {
 
   @@index([workspaceId])
   @@index([deletedAt])
+  // Lead Intelligence firmographic filters, always workspace-scoped first.
+  @@index([workspaceId, industry])
+  @@index([workspaceId, country])
+  @@index([workspaceId, revenueRange])
 }
 
 model Person {
@@ -358,6 +381,13 @@ model Person {
   linkedin  String?
   createdAt DateTime  @default(now())
   deletedAt DateTime?
+
+  // Derived from jobTitle by lib/job-title.ts on every write (create, edit, import, API) so
+  // Lead Intelligence can offer them as pickable filters instead of free-text matching.
+  // jobTitle stays the source of truth and is never rewritten; these are additive labels,
+  // null when the title doesn't classify. Backfilled by scripts/backfill-job-title-fields.ts.
+  seniority  String?
+  department String?
 
   // Free-text label matching a ContactPipelineStage.label in this workspace — same pattern as
   // Opportunity.stage (not a foreign key, so renaming a stage just needs a bulk string update,
@@ -405,9 +435,13 @@ model Person {
   companyLinks        PersonCompany[]
   opportunityLinks    OpportunityPerson[]
   gdprRequests        GdprRequest[]
+  scheduledEmails     ScheduledEmail[]
 
   @@index([workspaceId])
   @@index([deletedAt])
+  // Lead Intelligence filters these together, always workspace-scoped first.
+  @@index([workspaceId, seniority])
+  @@index([workspaceId, department])
 }
 
 // Many-to-many: a person can be linked to companies beyond their primary Person.companyId
@@ -828,6 +862,7 @@ model MailboxAccount {
   defaultForUsers  UserMailboxPreference[]
   campaigns        CampaignMailbox[]
   campaignStepRuns CampaignStepRun[]
+  scheduledEmails  ScheduledEmail[]
 
   @@index([createdById])
   @@index([workspaceId])
@@ -1479,4 +1514,78 @@ model LinkedinProspect {
 
   @@unique([workspaceId, linkedinUrn])
   @@index([workspaceId, createdAt])
+}
+
+// A workspace-scoped key for the public REST API (Settings > MCP & APIs) — create/lead/deal
+// endpoints authenticate with "Authorization: Bearer <token>" instead of a session cookie.
+// Only the SHA-256 hash is stored; the plaintext token is shown once at creation, same
+// tradeoff as a password (see lib/password.ts) — we only ever need to compare, not read back.
+// A composer draft frozen for later delivery ("Send later"). Not a CampaignStepRun: a manual
+// email has no CampaignMember/Campaign/CampaignStep to hang off, and faking one per scheduled
+// email would be a worse lie than a small table of its own.
+//
+// The whole send payload is stored, including which transport to use — senderId's Gmail when
+// mailboxAccountId is null, that mailbox's SMTP otherwise — because the worker has no session
+// to re-derive it from. Drained by runDueScheduledEmails() inside campaign-worker's existing
+// 60s tick, so there's no new worker process.
+model ScheduledEmail {
+  id     String @id @default(cuid())
+  status String @default("pending") // "pending" | "sent" | "failed" | "cancelled"
+
+  scheduledFor DateTime
+  createdAt    DateTime  @default(now())
+  sentAt       DateTime?
+  error        String?
+
+  to      String[]
+  cc      String[] @default([])
+  bcc     String[] @default([])
+  subject String
+  bodyHtml String
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  // Null = send as senderId's connected Gmail; set = send over this mailbox's SMTP.
+  mailboxAccountId String?
+  mailboxAccount   MailboxAccount? @relation(fields: [mailboxAccountId], references: [id], onDelete: SetNull)
+
+  // Who scheduled it — also the Gmail identity used when mailboxAccountId is null.
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  replyToEmailId String?
+
+  // Deal links to apply to the Email row once it's actually sent, mirroring the composer's
+  // opportunityIds. Plain ids rather than a join table — nothing queries them until send time.
+  opportunityIds String[] @default([])
+
+  // The Email row created once delivery succeeds, so the timeline can link back to it.
+  sentEmailId String?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@index([workspaceId])
+  @@index([personId])
+  @@index([senderId])
+  @@index([mailboxAccountId])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique
+  tokenLast4 String // shown in the UI so a key can be identified without revealing it
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  @@index([workspaceId])
 }

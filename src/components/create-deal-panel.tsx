@@ -10,10 +10,13 @@ import { ContactPicker } from "@/components/contact-picker";
 export function CreateDealPanel({
   stages,
   defaultStage,
+  companyId,
   onClose,
 }: {
   stages: PipelineStage[];
   defaultStage?: string;
+  /** Preset when opened from a company — createOpportunity still lets a picked contact's own company win. */
+  companyId?: string;
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
@@ -37,6 +40,7 @@ export function CreateDealPanel({
           stage,
           value: Math.max(0, Math.round(Number(value) || 0)),
           contactId,
+          companyId,
         });
         onClose();
       } catch (err) {

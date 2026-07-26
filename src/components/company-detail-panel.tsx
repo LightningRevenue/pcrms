@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Link2, Banknote, MapPin, CalendarDays, UserCircle, Plus, ArrowUpRight, X } from "lucide-react";
+import { Link2, Banknote, MapPin, CalendarDays, UserCircle, Plus, ArrowUpRight, X, Briefcase, Users, Globe2 } from "lucide-react";
 import type { Company, ImportBatch, List, Opportunity, Person, User } from "@prisma/client";
 import { FieldSection } from "@/components/field-section";
 import { FieldRow } from "@/components/field-row";
@@ -11,8 +11,21 @@ import { CustomFieldsSection } from "@/components/custom-fields-section";
 import { LinkPersonPopover } from "@/components/link-person-popover";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntityListsSection } from "@/components/entity-lists-section";
-import { updateCompanyField, unlinkPersonFromCompany, type CompanyField } from "@/lib/actions/companies";
+import {
+  updateCompanyField,
+  updateCompanyEmployeeCount,
+  unlinkPersonFromCompany,
+  type CompanyField,
+} from "@/lib/actions/companies";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
+import {
+  INDUSTRIES,
+  COUNTRIES,
+  REVENUE_RANGES,
+  EMPLOYEE_BUCKETS,
+  employeeBucketLabel,
+  withCurrent,
+} from "@/lib/firmographics";
 import { useContactHref } from "@/lib/view-mode";
 
 type CompanyWithRelations = Company & { createdBy: User | null; importBatch: ImportBatch | null };
@@ -34,12 +47,15 @@ export function CompanyDetailPanel({
   customFields,
   opportunities,
   lists,
+  hideRelations = false,
 }: {
   company: CompanyWithRelations;
   people: Person[];
   customFields: Awaited<ReturnType<typeof getCustomFieldValues>>;
   opportunities: Opportunity[];
   lists: List[];
+  /** People/Deals/Lists move to the right-hand relations column instead. */
+  hideRelations?: boolean;
 }) {
   const [name, setName] = useState(company.name);
   const [, startTransition] = useTransition();
@@ -52,22 +68,32 @@ export function CompanyDetailPanel({
   }
 
   return (
-    <aside className="w-80 shrink-0 border-r border-border h-[calc(100vh-3.5rem)] overflow-y-auto px-5 py-6">
-      <div className="flex items-center gap-1.5">
-        <CompanyLogo domain={company.domain} fallbackText="" size={16} className="bg-transparent border-0" />
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => name.trim() && name !== company.name && save("name", name)}
-          className="min-w-0 flex-1 bg-transparent text-[17px] font-medium outline-none border-b border-transparent hover:border-border focus:border-border transition-colors"
-        />
-      </div>
-      <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
+    <aside className="w-80 shrink-0 border-r border-border h-full overflow-y-auto px-5 py-6">
+      {/* The highlights bar already shows name, logo and creation date — only render them
+          here on views without it. */}
+      {!hideRelations && (
+        <>
+          <div className="flex items-center gap-1.5">
+            <CompanyLogo domain={company.domain} fallbackText="" size={16} className="bg-transparent border-0" />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => name.trim() && name !== company.name && save("name", name)}
+              className="min-w-0 flex-1 bg-transparent text-[17px] font-medium outline-none border-b border-transparent hover:border-border focus:border-border transition-colors"
+            />
+          </div>
+          <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
+        </>
+      )}
 
-      <div className="mt-6 border-t border-border">
-        <p className="text-[12px] font-medium text-subtle uppercase tracking-wide pt-4 px-1">
-          Fields
-        </p>
+      {/* FieldSection carries its own py-2, so cancel it on the first one to line the
+          "General" header up with "Contacts" in the right-hand panel. */}
+      <div className={hideRelations ? "-mt-2" : "mt-6 border-t border-border"}>
+        {!hideRelations && (
+          <p className="text-[12px] font-medium text-subtle uppercase tracking-wide pt-4 px-1">
+            Fields
+          </p>
+        )}
 
         <FieldSection title="General">
           <EditableFieldRow icon={Link2} label="Domain Name" value={company.domain ?? ""} placeholder="Domain Name" onSave={(v) => updateCompanyField(company.id, "domain", v)} />
@@ -75,6 +101,45 @@ export function CompanyDetailPanel({
 
         <FieldSection title="Business">
           <EditableFieldRow icon={Banknote} label="Revenue" value={company.annualRevenue ?? ""} placeholder="Annual Revenue" onSave={(v) => updateCompanyField(company.id, "annualRevenue", v)} />
+          {/* Industry/Country/Revenue Range are pickers, not free text, so the values stay
+              consistent enough to filter on in Lead Intelligence. A value already stored that
+              isn't in the curated list is appended, so imported data never silently vanishes. */}
+          <EditableFieldRow
+            icon={Briefcase}
+            label="Industry"
+            type="select"
+            options={withCurrent(INDUSTRIES, company.industry)}
+            value={company.industry ?? ""}
+            placeholder="Industry"
+            onSave={(v) => updateCompanyField(company.id, "industry", v)}
+          />
+          <EditableFieldRow
+            icon={Banknote}
+            label="Revenue Range"
+            type="select"
+            options={withCurrent(REVENUE_RANGES, company.revenueRange)}
+            value={company.revenueRange ?? ""}
+            placeholder="Revenue range"
+            onSave={(v) => updateCompanyField(company.id, "revenueRange", v)}
+          />
+          <EditableFieldRow
+            icon={Users}
+            label="Employees"
+            type="select"
+            options={EMPLOYEE_BUCKETS.map((b) => b.label)}
+            value={employeeBucketLabel(company.employeeCount)}
+            placeholder="Employee count"
+            onSave={(v) => updateCompanyEmployeeCount(company.id, v)}
+          />
+          <EditableFieldRow
+            icon={Globe2}
+            label="Country"
+            type="select"
+            options={withCurrent(COUNTRIES, company.country)}
+            value={company.country ?? ""}
+            placeholder="Country"
+            onSave={(v) => updateCompanyField(company.id, "country", v)}
+          />
         </FieldSection>
 
         <FieldSection title="Contact">
@@ -90,6 +155,9 @@ export function CompanyDetailPanel({
         <CustomFieldsSection objectType="company" recordId={company.id} fields={customFields} />
       </div>
 
+      {/* On /companies/[id] these live in the right-hand CompanyRelationsPanel instead —
+          see hideRelations guards. */}
+      {hideRelations ? null : (
       <div className="mt-2 border-t border-border pt-4 space-y-4">
         <div>
           <div className="flex items-center justify-between px-1">
@@ -143,6 +211,7 @@ export function CompanyDetailPanel({
 
         <EntityListsSection entityType="company" entityId={company.id} lists={lists} />
       </div>
+      )}
     </aside>
   );
 }

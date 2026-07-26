@@ -1,10 +1,10 @@
 import { sendFromNotificationInbox } from "@/lib/notification-inbox-send";
 import { getTrackingBaseUrlForWorker } from "@/lib/workspace-settings";
 
-type EntityKind = "deal" | "contact";
+type EntityKind = "deal" | "contact" | "company";
 
-const ENTITY_LABEL: Record<EntityKind, string> = { deal: "deal", contact: "contact" };
-const ENTITY_PATH: Record<EntityKind, string> = { deal: "deals", contact: "contacts" };
+const ENTITY_LABEL: Record<EntityKind, string> = { deal: "deal", contact: "contact", company: "company" };
+const ENTITY_PATH: Record<EntityKind, string> = { deal: "deals", contact: "contacts", company: "companies" };
 
 function buildOwnershipEmailHtml(opts: { entityKind: EntityKind; entityName: string; assignedByName: string; goToUrl: string }) {
   const label = ENTITY_LABEL[opts.entityKind];

@@ -14,6 +14,10 @@ export const STANDARD_IMPORT_FIELDS: Record<ObjectType, ImportField[]> = {
     { key: "address", label: "Address" },
     { key: "linkedin", label: "Linkedin" },
     { key: "annualRevenue", label: "Annual Revenue" },
+    { key: "industry", label: "Industry" },
+    { key: "country", label: "Country" },
+    { key: "revenueRange", label: "Revenue Range" },
+    { key: "employeeCount", label: "Employee Count" },
   ],
   person: [
     { key: "firstName", label: "First name", required: true },

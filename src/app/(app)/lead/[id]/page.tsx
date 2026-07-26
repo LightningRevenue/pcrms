@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { LeadHeaderBar } from "@/components/lead-header-bar";
+import { LeadHighlightsBar } from "@/components/lead-highlights-bar";
+import { deriveNextStep, lastTouchOf } from "@/lib/next-step";
 import { ContactDetailPanel } from "@/components/contact-detail-panel";
 import { ContactTabs } from "@/components/contact-tabs";
 import { LeadRelationshipsPanel } from "@/components/lead-relationships-panel";
@@ -103,14 +104,38 @@ export default async function LeadDetailPage({
   const openStageLabels = new Set(stages.filter((s) => s.outcome === "open").map((s) => s.label));
   const openOpportunities = opportunities.filter((o) => openStageLabels.has(o.stage));
 
+  const nextStep = deriveNextStep(
+    tasks,
+    sequenceEnrollments.flatMap((e) =>
+      e.currentStep
+        ? [{ step: e.currentStep.step, scheduledFor: e.currentStep.scheduledFor, sequenceName: e.sequence.name }]
+        : []
+    ),
+    lastTouchOf(emails, calls)
+  );
+
   return (
     <div className="flex flex-col h-screen">
-      <LeadHeaderBar
+      <LeadHighlightsBar
         contactId={contact.id}
-        name={name}
+        firstName={contact.firstName}
+        lastName={contact.lastName}
         index={index + 1}
         total={people.length}
+        companyId={contact.company?.id ?? null}
+        companyName={contact.company?.name ?? null}
+        companyDomain={contact.company?.domain ?? null}
+        jobTitle={contact.jobTitle}
+        ownerId={contact.ownerId}
+        personEmail={contact.email}
+        personPhone={contact.phone}
+        unsubscribed={!!contact.unsubscribedAt}
+        stages={stages}
+        opportunities={openOpportunities}
         isFavorited={favorited}
+        mailboxes={mailboxes}
+        users={users}
+        nextStep={nextStep}
       />
       <LeadPipelineStepper personId={contact.id} stage={contact.stage} stages={contactStages} />
       <div className="flex flex-1 min-h-0">
@@ -122,7 +147,6 @@ export default async function LeadDetailPage({
           lists={lists}
           users={users}
           hideRelations
-          quickActions={{ stages, mailboxes }}
         />
         <div className="flex-1 min-w-0 overflow-y-auto">
           <ContactTabs
@@ -138,6 +162,7 @@ export default async function LeadDetailPage({
             mailboxes={mailboxes}
             calls={calls}
             users={users}
+            defaultTab="all"
           />
         </div>
         <LeadRelationshipsPanel

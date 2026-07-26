@@ -27,11 +27,20 @@ import {
   X,
   Eye,
   Megaphone,
+  PencilLine,
 } from "lucide-react";
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
 import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
 import { moveContactStage, bulkMoveUnstagedContacts } from "@/lib/actions/contact-pipeline-stages";
+import { BulkFieldDialog } from "@/components/bulk-field-dialog";
+import {
+  bulkUpdatePersonField,
+  bulkUpdateCompanyForContacts,
+  type BulkPersonField,
+  type BulkCompanyField,
+} from "@/lib/actions/bulk-fields";
+import { INDUSTRIES, COUNTRIES, REVENUE_RANGES, EMPLOYEE_BUCKETS } from "@/lib/firmographics";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
@@ -231,6 +240,8 @@ export function ContactsView({
   const [draft, setDraft] = useState<ComposerDraft | null>(null);
   const [sort, setSort] = useState<{ key: ColumnKey; dir: SortDir } | null>(null);
   const [changingOwner, setChangingOwner] = useState(false);
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [previewPerson, setPreviewPerson] = useState<PersonRow | null>(null);
   const searchParams = useSearchParams();
   // Empty set = no filter applied (show everyone). "no-owner" is a synthetic id alongside real
@@ -408,6 +419,14 @@ export function ContactsView({
             Change Owner
           </button>
           <button
+            onClick={() => setBulkEditing(true)}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <PencilLine size={14} strokeWidth={1.75} />
+            Edit fields
+          </button>
+          <button
             onClick={handleDeleteSelected}
             disabled={pending}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
@@ -422,6 +441,71 @@ export function ContactsView({
             title="Clear selection"
           >
             <X size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+
+      {bulkEditing && (
+        <BulkFieldDialog
+          title={`Edit ${selected.size} contact${selected.size === 1 ? "" : "s"}`}
+          fields={[
+            { field: "stage", label: "Stage", options: stages.map((s) => s.label) },
+            {
+              field: "company:industry",
+              label: "Company · Industry",
+              options: INDUSTRIES,
+              note: "Applies to each contact's company. Contacts with no company are skipped.",
+            },
+            {
+              field: "company:country",
+              label: "Company · Country",
+              options: COUNTRIES,
+              note: "Applies to each contact's company. Contacts with no company are skipped.",
+            },
+            {
+              field: "company:revenueRange",
+              label: "Company · Revenue Range",
+              options: REVENUE_RANGES,
+              note: "Applies to each contact's company. Contacts with no company are skipped.",
+            },
+            {
+              field: "company:employeeCount",
+              label: "Company · Employees",
+              options: EMPLOYEE_BUCKETS.map((b) => b.label),
+              note: "Applies to each contact's company. Contacts with no company are skipped.",
+            },
+          ]}
+          onApply={async (field, value) => {
+            const ids = [...selected];
+            if (field.startsWith("company:")) {
+              const res = await bulkUpdateCompanyForContacts(
+                ids,
+                field.slice("company:".length) as BulkCompanyField,
+                value
+              );
+              setBulkNotice(
+                res.skipped > 0
+                  ? `Updated ${res.updated} compan${res.updated === 1 ? "y" : "ies"}. Skipped ${res.skipped} contact${res.skipped === 1 ? "" : "s"} with no company.`
+                  : `Updated ${res.updated} compan${res.updated === 1 ? "y" : "ies"}.`
+              );
+            } else {
+              const res = await bulkUpdatePersonField(ids, field as BulkPersonField, value);
+              setBulkNotice(`Updated ${res.updated} contact${res.updated === 1 ? "" : "s"}.`);
+            }
+            setSelected(new Set());
+          }}
+          onClose={() => setBulkEditing(false)}
+        />
+      )}
+
+      {bulkNotice && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 px-3 py-2 rounded-lg border border-border bg-surface shadow-xl text-[12.5px]">
+          {bulkNotice}
+          <button
+            onClick={() => setBulkNotice(null)}
+            className="ml-3 text-subtle hover:text-foreground transition-colors"
+          >
+            Dismiss
           </button>
         </div>
       )}

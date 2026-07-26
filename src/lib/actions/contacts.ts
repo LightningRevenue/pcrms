@@ -8,6 +8,7 @@ import { PERSON_FIELD_LABELS } from "@/lib/field-labels";
 import { assertLimit } from "@/lib/entitlements";
 import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
 import { sendOwnershipEmail } from "@/lib/ownership-notification";
+import { deriveJobTitleFields } from "@/lib/job-title";
 
 export type CreateContactInput = {
   firstName: string;
@@ -45,6 +46,8 @@ export async function createContact(input: CreateContactInput) {
   const companyId = companyName ? await resolveCompanyId(workspaceId, companyName, emailDomain) : undefined;
   const stage = await getDefaultContactStageLabel(workspaceId);
 
+  const jobTitle = input.jobTitle?.trim() || null;
+
   const person = await db.person.create({
     data: {
       workspaceId,
@@ -52,7 +55,8 @@ export async function createContact(input: CreateContactInput) {
       lastName: input.lastName?.trim() || null,
       email: input.email?.trim() || null,
       phone: input.phone?.trim() || null,
-      jobTitle: input.jobTitle?.trim() || null,
+      jobTitle,
+      ...deriveJobTitleFields(jobTitle),
       linkedin: input.linkedin?.trim() || null,
       companyId,
       stage,
@@ -278,6 +282,8 @@ export async function updatePersonField(personId: string, field: Exclude<PersonF
   if (oldValue === value) return;
 
   const data: Record<string, string | null> = { [field]: value || null };
+  // Keep the derived filter labels in sync whenever the title they come from changes.
+  if (field === "jobTitle") Object.assign(data, deriveJobTitleFields(value || null));
   if (field === "email" && value && !current.companyId) {
     const derivedName = deriveCompanyNameFromEmail(value);
     if (derivedName) data.companyId = await resolveCompanyId(workspaceId, derivedName, value.split("@")[1]?.toLowerCase().trim());

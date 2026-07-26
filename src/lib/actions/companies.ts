@@ -5,6 +5,12 @@ import { requireWorkspace, companyVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { COMPANY_FIELD_LABELS } from "@/lib/field-labels";
 import { assertLimit } from "@/lib/entitlements";
+import { sendOwnershipEmail } from "@/lib/ownership-notification";
+import {
+  deriveRevenueRange,
+  employeeBucketLabel,
+  parseEmployeeCountInput,
+} from "@/lib/firmographics";
 
 export type CreateCompanyInput = {
   name: string;
@@ -12,6 +18,10 @@ export type CreateCompanyInput = {
   address?: string;
   linkedin?: string;
   annualRevenue?: string;
+  industry?: string;
+  country?: string;
+  /** Free text from the form; non-numeric input is ignored rather than rejected. */
+  employeeCount?: string;
 };
 
 const FIELD_LABELS = COMPANY_FIELD_LABELS;
@@ -33,6 +43,11 @@ export async function createCompany(input: CreateCompanyInput) {
       address: input.address?.trim() || null,
       linkedin: input.linkedin?.trim() || null,
       annualRevenue: input.annualRevenue?.trim() || null,
+      industry: input.industry?.trim() || null,
+      country: input.country?.trim() || null,
+      revenueRange: deriveRevenueRange(input.annualRevenue),
+      // Accepts a bucket label from the picker or a plain number from the API.
+      employeeCount: parseEmployeeCountInput(input.employeeCount),
       createdById: userId,
     },
   });
@@ -170,6 +185,47 @@ export async function unlinkPersonFromCompany(companyId: string, personId: strin
   revalidatePath("/contacts");
 }
 
+export async function setCompanyOwner(companyId: string, ownerId: string | null) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const [current, actor] = await Promise.all([
+    db.company.findUniqueOrThrow({ where: { id: companyId, workspaceId }, include: { owner: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+  ]);
+  const oldValue = current.owner?.name ?? current.owner?.email ?? "";
+
+  const next = ownerId ? await db.user.findUniqueOrThrow({ where: { id: ownerId } }) : null;
+  const newValue = next?.name ?? next?.email ?? "";
+  if (oldValue === newValue) return;
+
+  await db.company.update({ where: { id: companyId, workspaceId }, data: { ownerId } });
+  await db.activity.create({
+    data: {
+      workspaceId,
+      entityType: "company",
+      entityId: companyId,
+      field: "Owner",
+      oldValue: oldValue || null,
+      newValue: newValue || null,
+      actorId: userId,
+    },
+  });
+
+  if (next?.email && next.id !== userId) {
+    await sendOwnershipEmail({
+      entityKind: "company",
+      recipientEmail: next.email,
+      entityId: companyId,
+      entityName: current.name || "Untitled",
+      assignedByName: actor?.name ?? actor?.email ?? "Someone",
+      workspaceId,
+    });
+  }
+
+  revalidatePath(`/companies/${companyId}`);
+  revalidatePath("/companies");
+}
+
 export async function updateCompanyField(companyId: string, field: CompanyField, rawValue: string) {
   const { userId, workspaceId } = await requireWorkspace();
 
@@ -180,7 +236,16 @@ export async function updateCompanyField(companyId: string, field: CompanyField,
   const oldValue = current[field] ?? "";
   if (oldValue === value) return;
 
-  await db.company.update({ where: { id: companyId, workspaceId }, data: { [field]: value || null } });
+  // Setting Annual Revenue also fills in the bucketed Revenue Range, so the filterable field
+  // keeps up with the free-text one. Only when the text actually parses — unparseable input
+  // ("confidential") leaves whatever range was chosen by hand alone.
+  const data: Record<string, string | null> = { [field]: value || null };
+  if (field === "annualRevenue") {
+    const derived = deriveRevenueRange(value);
+    if (derived) data.revenueRange = derived;
+  }
+
+  await db.company.update({ where: { id: companyId, workspaceId }, data });
   await db.activity.create({
     data: {
       workspaceId,
@@ -189,6 +254,47 @@ export async function updateCompanyField(companyId: string, field: CompanyField,
       field: FIELD_LABELS[field],
       oldValue: oldValue || null,
       newValue: value || null,
+      actorId: userId,
+    },
+  });
+
+  revalidatePath(`/companies/${companyId}`);
+  revalidatePath("/companies");
+}
+
+// employeeCount is the one Company field that isn't a string, so it can't go through
+// updateCompanyField (which writes the raw trimmed text). Accepts either a bucket label from
+// the picker ("201-500") or a plain number (CSV/API), since both reach this path. Blank
+// clears it; anything else is rejected rather than silently stored as 0.
+export async function updateCompanyEmployeeCount(companyId: string, rawValue: string) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const trimmed = rawValue.trim();
+  const value = parseEmployeeCountInput(trimmed);
+  if (trimmed && value === null) throw new Error("Employee count must be a positive number");
+
+  const current = await db.company.findUniqueOrThrow({ where: { id: companyId, workspaceId } });
+  if (current.employeeCount === value) return;
+
+  // An exact count (e.g. 320 from an import) already inside the picked bucket is left alone —
+  // re-selecting the bucket it's displayed as shouldn't coarsen it to the bucket's lower bound.
+  if (
+    value !== null &&
+    current.employeeCount !== null &&
+    employeeBucketLabel(current.employeeCount) === employeeBucketLabel(value)
+  ) {
+    return;
+  }
+
+  await db.company.update({ where: { id: companyId, workspaceId }, data: { employeeCount: value } });
+  await db.activity.create({
+    data: {
+      workspaceId,
+      entityType: "company",
+      entityId: companyId,
+      field: "Employees",
+      oldValue: current.employeeCount?.toString() ?? null,
+      newValue: value?.toString() ?? null,
       actorId: userId,
     },
   });

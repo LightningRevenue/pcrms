@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Phone, PhoneMissed, PhoneOff, Clock, ChevronDown } from "lucide-react";
 import type { Call, CallOpportunity, Opportunity, User } from "@prisma/client";
-import { CALL_DISPOSITIONS, setCallDisposition, setCallOpportunities } from "@/lib/actions/calls";
+import { setCallDisposition, setCallOpportunities } from "@/lib/actions/calls";
+import { CALL_DISPOSITIONS } from "@/lib/call-dispositions";
 
 type CallRow = Call & { createdBy: User | null; opportunities: CallOpportunity[] };
 

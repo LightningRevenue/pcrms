@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { runGmailReplySync } from "@/lib/gmail-sync";
 import { runDueSequenceSteps } from "@/lib/sequence-runner";
 import { runDueCampaignSteps } from "@/lib/campaign-runner";
+import { runDueScheduledEmails } from "@/lib/scheduled-email-runner";
 import { runTrashPurge } from "@/lib/trash-purge";
 import { runStripeReconcile } from "@/lib/stripe-reconcile";
 
@@ -30,6 +31,11 @@ export async function runSequenceStepsNow() {
 
 export async function runCampaignStepsNow() {
   await runDueCampaignSteps().catch(() => {});
+  revalidatePath("/settings/cron-jobs");
+}
+
+export async function runScheduledEmailsNow() {
+  await runDueScheduledEmails().catch(() => {});
   revalidatePath("/settings/cron-jobs");
 }
 

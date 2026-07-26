@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx src/lib/next-step.test.ts && tsx src/lib/job-title.test.ts && tsx src/lib/prospect-where.test.ts && tsx src/lib/firmographics.test.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

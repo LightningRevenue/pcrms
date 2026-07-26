@@ -43,5 +43,7 @@ export const config = {
   // session either; the route verifies its own HMAC-signed token instead (see lib/gdpr.ts).
   // /invite/[token] must stay reachable logged-out — that's the whole point, an invited
   // person who doesn't have an account (or session) yet needs to open the link and sign in.
-  matcher: ["/((?!api/auth|api/track|api/twilio|api/stripe|api/unsubscribe|_next/static|_next/image|favicon.ico).*)"],
+  // api/v1 must stay excluded too — the public REST API (Settings > MCP & APIs) is called by
+  // external integrations with no CRM session; it authenticates itself via requireApiKey.
+  matcher: ["/((?!api/auth|api/track|api/twilio|api/stripe|api/unsubscribe|api/v1|_next/static|_next/image|favicon.ico).*)"],
 };

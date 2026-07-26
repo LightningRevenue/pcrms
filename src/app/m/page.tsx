@@ -14,7 +14,7 @@ function greeting() {
 }
 
 export default async function MobileHomePage() {
-  const [session, opportunities, stages, tasksToday, threads] = await Promise.all([
+  const [session, opportunities, stages, tasksToday, { threads }] = await Promise.all([
     auth(),
     listOpportunities(),
     listPipelineStages(),

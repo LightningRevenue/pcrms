@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import type { Email, EmailOpen, EmailOpportunity, Note, NoteOpportunity, Opportunity, Person, Task, TaskOpportunity, User } from "@prisma/client";
-import { History, CheckSquare, FileText, Paperclip, Mail, Calendar } from "lucide-react";
+import type { Call, CallOpportunity, Email, EmailOpen, EmailOpportunity, Note, NoteOpportunity, Opportunity, Person, Task, TaskOpportunity, User } from "@prisma/client";
+import { History, CheckSquare, FileText, Paperclip, Mail, Calendar, Layers } from "lucide-react";
 import { ActivityTimeline, type ActivityEntry } from "@/components/activity-timeline";
+import { ContactActivityFeed } from "@/components/contact-activity-feed";
 import { CompanyTasksTab } from "@/components/company-tasks-tab";
 import { CompanyEmailsTab } from "@/components/company-emails-tab";
 import { CompanyNotesTab } from "@/components/company-notes-tab";
 
 const TABS = [
+  { key: "all", label: "All", icon: Layers },
   { key: "timeline", label: "Timeline", icon: History },
   { key: "tasks", label: "Tasks", icon: CheckSquare },
   { key: "notes", label: "Notes", icon: FileText },
@@ -24,8 +26,14 @@ export function CompanyTabs({
   tasks,
   emails,
   notes,
+  calls,
+  companyName,
+  users,
 }: {
   events: ActivityEntry[];
+  calls: (Call & { createdBy: User | null; opportunities: CallOpportunity[] })[];
+  companyName: string;
+  users: { id: string; name: string | null; email: string | null }[];
   tasks: (Task & { person: Person; opportunities: (TaskOpportunity & { opportunity: Opportunity })[] })[];
   emails: (Email & {
     person: Person;
@@ -38,7 +46,7 @@ export function CompanyTabs({
     opportunities: (NoteOpportunity & { opportunity: Opportunity })[];
   })[];
 }) {
-  const [active, setActive] = useState<TabKey>("timeline");
+  const [active, setActive] = useState<TabKey>("all");
 
   return (
     <div>
@@ -60,7 +68,16 @@ export function CompanyTabs({
       </div>
 
       <div className="px-8 py-6">
-        {active === "timeline" ? (
+        {active === "all" ? (
+          <ContactActivityFeed
+            personName={companyName}
+            emails={emails}
+            notes={notes}
+            calls={calls}
+            tasks={tasks}
+            users={users}
+          />
+        ) : active === "timeline" ? (
           <ActivityTimeline events={events} />
         ) : active === "tasks" ? (
           <CompanyTasksTab tasks={tasks} />

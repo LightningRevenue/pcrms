@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Mail, Phone, Briefcase, Link2, CalendarDays, UserCircle, Plus, Building2, ArrowUpRight, X, Banknote, GitBranch, BookOpen } from "lucide-react";
+import { Mail, Phone, Briefcase, Link2, CalendarDays, UserCircle, Plus, Building2, ArrowUpRight, X, Banknote, GitBranch, BookOpen, Target, Layers } from "lucide-react";
 import type { Company, ImportBatch, List, Opportunity, Person, Sequence, SequenceEnrollment, User } from "@prisma/client";
 import { FieldSection } from "@/components/field-section";
 import { FieldRow } from "@/components/field-row";
@@ -13,13 +13,16 @@ import { CompanyLogo } from "@/components/company-logo";
 import { EntityListsSection } from "@/components/entity-lists-section";
 import { OwnerSelect } from "@/components/owner-select";
 import { ContactPlaybooksPanel } from "@/components/contact-playbooks-panel";
-import { LeadQuickActions } from "@/components/lead-quick-actions";
 import { UnsubscribeToggle } from "@/components/unsubscribe-toggle";
 import { VerifyEmailButton } from "@/components/verify-email-button";
 import { updatePersonField, setPersonCompany, setPersonOwner, type PersonField } from "@/lib/actions/contacts";
+import {
+  SENIORITY_LABELS,
+  DEPARTMENT_LABELS,
+  type Seniority,
+  type Department,
+} from "@/lib/job-title";
 import type { getCustomFieldValues } from "@/lib/actions/custom-fields";
-import type { MailboxOption } from "@/components/email-composer";
-import type { PipelineStage } from "@prisma/client";
 
 type WorkspaceUser = { id: string; name: string | null; email: string | null };
 
@@ -51,7 +54,6 @@ export function ContactDetailPanel({
   lists,
   users,
   hideRelations = false,
-  quickActions,
 }: {
   contact: ContactWithRelations;
   customFields: Awaited<ReturnType<typeof getCustomFieldValues>>;
@@ -62,9 +64,6 @@ export function ContactDetailPanel({
   // Company/Opportunities/Sequences/Lists — omitted on /lead/[id], which shows all of that
   // in LeadRelationshipsPanel on the right instead, to avoid showing it twice.
   hideRelations?: boolean;
-  // Renders LeadQuickActions under the name on /lead/[id] — undefined on /contacts/[id],
-  // which keeps those actions in ContactHeaderBar at the top instead.
-  quickActions?: { stages: PipelineStage[]; mailboxes: MailboxOption[] };
 }) {
   const [firstName, setFirstName] = useState(contact.firstName);
   const [lastName, setLastName] = useState(contact.lastName ?? "");
@@ -72,7 +71,6 @@ export function ContactDetailPanel({
   const [, startTransition] = useTransition();
   const createdAt = relativeTime(contact.createdAt);
   const createdBy = contact.importBatch?.name ?? contact.createdBy?.name ?? contact.createdBy?.email ?? "—";
-  const name = [firstName, lastName].filter(Boolean).join(" ");
 
   function save(field: Exclude<PersonField, "company">, value: string) {
     startTransition(() => updatePersonField(contact.id, field, value));
@@ -80,58 +78,60 @@ export function ContactDetailPanel({
 
   return (
     <aside className="w-80 shrink-0 border-r border-border h-full overflow-y-auto px-5 py-6">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <CompanyLogo domain={contact.company?.domain} fallbackText="" size={16} className="bg-transparent border-0" />
-        <input
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-          onBlur={() => firstName.trim() && firstName !== contact.firstName && save("firstName", firstName)}
-          size={Math.max(firstName.length, 1)}
-          className="w-auto max-w-full bg-transparent text-[17px] font-medium outline-none border-b border-transparent hover:border-border focus:border-border transition-colors"
-        />
-        <input
-          value={lastName}
-          onChange={(e) => setLastName(e.target.value)}
-          onBlur={() => lastName !== (contact.lastName ?? "") && save("lastName", lastName)}
-          placeholder="Last name"
-          size={Math.max(lastName.length || 10, 1)}
-          className="w-auto max-w-full bg-transparent text-[17px] font-medium outline-none border-b border-transparent hover:border-border focus:border-border transition-colors placeholder:text-subtle placeholder:font-normal"
-        />
-      </div>
-      <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
-
-      {quickActions && (
-        <div className="mt-3">
-          <LeadQuickActions
-            contactId={contact.id}
-            name={name}
-            companyName={contact.company?.name ?? null}
-            personEmail={contact.email}
-            personPhone={contact.phone}
-            unsubscribed={!!contact.unsubscribedAt}
-            stages={quickActions.stages}
-            opportunities={opportunities}
-            mailboxes={quickActions.mailboxes}
-            users={users}
-          />
-        </div>
+      {/* On /lead/[id] the name, email, phone, company and owner all live in the highlights
+          bar instead — see hideRelations guards below. */}
+      {!hideRelations && (
+        <>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <CompanyLogo domain={contact.company?.domain} fallbackText="" size={16} className="bg-transparent border-0" />
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              onBlur={() => firstName.trim() && firstName !== contact.firstName && save("firstName", firstName)}
+              size={Math.max(firstName.length, 1)}
+              className="w-auto max-w-full bg-transparent text-[17px] font-medium outline-none border-b border-transparent hover:border-border focus:border-border transition-colors"
+            />
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              onBlur={() => lastName !== (contact.lastName ?? "") && save("lastName", lastName)}
+              placeholder="Last name"
+              size={Math.max(lastName.length || 10, 1)}
+              className="w-auto max-w-full bg-transparent text-[17px] font-medium outline-none border-b border-transparent hover:border-border focus:border-border transition-colors placeholder:text-subtle placeholder:font-normal"
+            />
+          </div>
+          <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
+        </>
       )}
 
-      <button
-        onClick={() => setShowPlaybooks(true)}
-        className="mt-3 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
-      >
-        <BookOpen size={14} strokeWidth={1.75} />
-        Playbooks
-      </button>
+      {/* On /lead/[id] Playbooks is an action button in the highlights bar instead. */}
+      {!hideRelations && (
+        <>
+          <button
+            onClick={() => setShowPlaybooks(true)}
+            className="mt-3 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          >
+            <BookOpen size={14} strokeWidth={1.75} />
+            Playbooks
+          </button>
 
-      {showPlaybooks && <ContactPlaybooksPanel onClose={() => setShowPlaybooks(false)} />}
+          {showPlaybooks && <ContactPlaybooksPanel onClose={() => setShowPlaybooks(false)} />}
+        </>
+      )}
 
-      <div className="mt-6 border-t border-border">
-        <p className="text-[12px] font-medium text-subtle uppercase tracking-wide pt-4 px-1">
-          Fields
-        </p>
+      {/* Nothing precedes this on /lead/[id] (name and Playbooks both live up top), so the
+          divider and the "Fields" heading would just be chrome above self-labelling sections.
+          The negative margin cancels FieldSection's own py-2 so the first section title lines
+          up with "Main Company" in the right-hand panel, which has no such wrapper. */}
+      <div className={hideRelations ? "-mt-3" : "mt-6 border-t border-border"}>
+        {!hideRelations && (
+          <p className="text-[12px] font-medium text-subtle uppercase tracking-wide pt-4 px-1">
+            Fields
+          </p>
+        )}
 
+        {/* Email and phone stay editable here on /lead/[id] too: up in the highlights bar
+            clicking them acts (compose / dial via Twilio), so this is where you change them. */}
         <FieldSection title="General">
           <div className="flex items-center gap-1">
             <div className="flex-1 min-w-0">
@@ -150,8 +150,26 @@ export function ContactDetailPanel({
         </FieldSection>
 
         <FieldSection title="Work">
-          <CompanyAutocompleteField value={contact.company?.name ?? ""} onSelect={(c) => setPersonCompany(contact.id, c)} />
+          {!hideRelations && (
+            <CompanyAutocompleteField value={contact.company?.name ?? ""} onSelect={(c) => setPersonCompany(contact.id, c)} />
+          )}
           <EditableFieldRow icon={Briefcase} label="Job Title" value={contact.jobTitle ?? ""} onSave={(v) => updatePersonField(contact.id, "jobTitle", v)} />
+          {/* Derived from Job Title (lib/job-title.ts) and refreshed on every edit, so these are
+              read-only — editing them directly would just be overwritten on the next save. */}
+          <FieldRow
+            icon={Target}
+            label="Seniority"
+            value={contact.seniority ? (SENIORITY_LABELS[contact.seniority as Seniority] ?? contact.seniority) : ""}
+            placeholder="—"
+            muted
+          />
+          <FieldRow
+            icon={Layers}
+            label="Department"
+            value={contact.department ? (DEPARTMENT_LABELS[contact.department as Department] ?? contact.department) : ""}
+            placeholder="—"
+            muted
+          />
         </FieldSection>
 
         <FieldSection title="Social">
@@ -159,17 +177,19 @@ export function ContactDetailPanel({
         </FieldSection>
 
         <FieldSection title="Relations">
-          <div className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
-            <div className="flex items-center gap-2 w-28 shrink-0 text-[13px] text-subtle">
-              <UserCircle size={14} strokeWidth={1.75} />
-              Owner
+          {!hideRelations && (
+            <div className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
+              <div className="flex items-center gap-2 w-28 shrink-0 text-[13px] text-subtle">
+                <UserCircle size={14} strokeWidth={1.75} />
+                Owner
+              </div>
+              <OwnerSelect
+                users={users}
+                ownerId={contact.ownerId}
+                onChange={(ownerId) => setPersonOwner(contact.id, ownerId)}
+              />
             </div>
-            <OwnerSelect
-              users={users}
-              ownerId={contact.ownerId}
-              onChange={(ownerId) => setPersonOwner(contact.id, ownerId)}
-            />
-          </div>
+          )}
           <UnsubscribeToggle personId={contact.id} unsubscribedAt={contact.unsubscribedAt} />
         </FieldSection>
 

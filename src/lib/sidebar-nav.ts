@@ -9,6 +9,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "inbox", href: "/inbox", label: "Unified Inbox", section: "main" },
   { key: "companies", href: "/companies", label: "Companies", section: "main" },
   { key: "contacts", href: "/contacts", label: "People", section: "main" },
+  { key: "lead-intelligence", href: "/lead-intelligence", label: "Lead Intelligence", section: "main" },
   { key: "deals", href: "/deals", label: "Opportunities", section: "main" },
   { key: "calendar", href: "/calendar", label: "Calendar", section: "main" },
   { key: "tasks", href: "/tasks", label: "Tasks", section: "main" },

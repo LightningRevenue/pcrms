@@ -109,14 +109,24 @@ function describe(e: ActivityEntry, actor: string) {
   }
 }
 
+// Field edits are written with no `kind` (see updatePersonField) and fall through to the
+// "changed X from A to B" default. When both sides are equal that renders as
+// "changed Note from empty to empty" — noise, so drop it. Named kinds are left alone;
+// they carry their meaning in `newValue` and legitimately have no `oldValue`.
+function isNoOp(e: ActivityEntry) {
+  return ICONS[e.kind] === undefined && (e.oldValue ?? "") === (e.newValue ?? "");
+}
+
 export function ActivityTimeline({ events }: { events: ActivityEntry[] }) {
-  if (events.length === 0) {
+  const visible = events.filter((e) => !isNoOp(e));
+
+  if (visible.length === 0) {
     return <p className="text-[13px] text-subtle px-1">No activity yet.</p>;
   }
 
   return (
     <div className="space-y-4">
-      {events.map((e) => {
+      {visible.map((e) => {
         const actor = e.actor?.name ?? e.actor?.email ?? "Someone";
         const Icon = ICONS[e.kind] ?? Pencil;
         return (

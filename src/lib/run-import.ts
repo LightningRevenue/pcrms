@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { parseCsv } from "@/lib/csv";
 import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
 import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
+import { deriveJobTitleFields } from "@/lib/job-title";
+import { deriveRevenueRange, parseEmployeeCountInput } from "@/lib/firmographics";
 import type { ObjectType } from "@/lib/actions/custom-fields";
 
 export type ImportJobData = {
@@ -103,6 +105,15 @@ async function importCompanyRow(
       address: record.address || null,
       linkedin: record.linkedin || null,
       annualRevenue: record.annualRevenue || null,
+      industry: record.industry || null,
+      country: record.country || null,
+      // An explicit Revenue Range column wins; otherwise derive it from Annual Revenue so the
+      // filterable field is populated either way.
+      revenueRange: record.revenueRange || deriveRevenueRange(record.annualRevenue),
+      // Unparseable input is dropped rather than failing the row — the rest of the record is
+      // still worth importing, same tolerance the other optional columns get. Accepts a bucket
+      // label as well as a raw number, so a CSV exported from this app round-trips.
+      employeeCount: parseEmployeeCountInput(record.employeeCount),
       createdById: userId,
       importBatchId: batchId,
     },
@@ -139,6 +150,7 @@ async function importPersonRow(
       email,
       phone: record.phone || null,
       jobTitle: record.jobTitle || null,
+      ...deriveJobTitleFields(record.jobTitle),
       linkedin: record.linkedin || null,
       companyId,
       stage: defaultStage,

@@ -3,12 +3,14 @@
 import { useEffect, useState, useTransition } from "react";
 import { useSession } from "next-auth/react";
 import type { Opportunity } from "@prisma/client";
-import { Minus, X, ChevronDown, Paperclip, Send, UserX } from "lucide-react";
+import { Minus, X, ChevronDown, Paperclip, Send, UserX, Clock } from "lucide-react";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { OpportunityMultiSelect } from "@/components/opportunity-multi-select";
 import { sendEmail, listTemplates } from "@/lib/actions/emails";
 import { sendViaSmtp } from "@/lib/actions/mailbox-accounts";
 import { createTask } from "@/lib/actions/tasks";
+import { scheduleEmail } from "@/lib/actions/scheduled-emails";
+import { ScheduleSendDialog } from "@/components/schedule-send-dialog";
 import { listTemplateVariables, type TemplateVariable } from "@/lib/template-variables";
 
 export type ComposerDraft = {
@@ -66,6 +68,7 @@ export function EmailComposer({
   const [opportunityIds, setOpportunityIds] = useState<string[]>(draft.opportunityIds ?? []);
   const [scheduleFollowUp, setScheduleFollowUp] = useState(false);
   const [followUpDays, setFollowUpDays] = useState(DEFAULT_FOLLOW_UP_DAYS);
+  const [schedulingOpen, setSchedulingOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -86,6 +89,42 @@ export function EmailComposer({
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+  }
+
+  // Same recipient/subject checks as handleSend — a scheduled email that fails validation at
+  // send time would fail silently in the worker, hours later.
+  function handleSchedule(whenIso: string) {
+    setError(null);
+    const toList = parseAddresses(to);
+    if (toList.length === 0) {
+      setError("Add at least one recipient");
+      return;
+    }
+    if (!subject.trim()) {
+      setError("Add a subject");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await scheduleEmail({
+          personId: draft.personId,
+          fromId,
+          to: toList,
+          cc: parseAddresses(cc),
+          bcc: parseAddresses(bcc),
+          subject,
+          bodyHtml: body,
+          replyToEmailId: draft.replyToEmailId,
+          opportunityIds,
+          scheduledFor: whenIso,
+        });
+        setSchedulingOpen(false);
+        onClose();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not schedule the email");
+      }
+    });
   }
 
   function handleSend() {
@@ -362,14 +401,25 @@ export function EmailComposer({
           </div>
 
           <div className="px-4 py-3 flex items-center justify-between shrink-0">
-            <button
-              onClick={handleSend}
-              disabled={isPending}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-            >
-              <Send size={13} strokeWidth={2} />
-              {isPending ? "Sending…" : "Send"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSend}
+                disabled={isPending}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-accent text-white text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                <Send size={13} strokeWidth={2} />
+                {isPending ? "Sending…" : "Send"}
+              </button>
+              <button
+                onClick={() => setSchedulingOpen(true)}
+                disabled={isPending}
+                title="Send later"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                <Clock size={13} strokeWidth={1.75} />
+                Later
+              </button>
+            </div>
             <button
               disabled
               title="Attachments not supported yet"
@@ -379,6 +429,14 @@ export function EmailComposer({
             </button>
           </div>
         </div>
+      )}
+
+      {schedulingOpen && (
+        <ScheduleSendDialog
+          pending={isPending}
+          onSchedule={handleSchedule}
+          onClose={() => setSchedulingOpen(false)}
+        />
       )}
     </div>
   );

@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local rulesets (not shared)
+/Rules MD/
+
+# Claude Code local config (machine-specific, not shared)
+/.claude/
