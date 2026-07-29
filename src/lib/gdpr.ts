@@ -30,6 +30,41 @@ export async function assertNotUnsubscribed(personId: string): Promise<void> {
   if (person?.unsubscribedAt) throw new UnsubscribedError();
 }
 
+// Single write path for Person.unsubscribedAt — the public token route, the Settings > GDPR
+// toggle and the per-contact toggle all route through here so the timeline entry can't be
+// forgotten by one caller. Only logs on an actual state change (updateMany returns count 0
+// when already in the target state), which also keeps link prefetches from spamming the
+// timeline. actorId is null for the public route: the recipient isn't a workspace User.
+export async function setUnsubscribed(
+  personId: string,
+  workspaceId: string,
+  unsubscribed: boolean,
+  actorId: string | null,
+  // ponytail: injectable only so the test can stub it; production always uses `db`. Typed as
+  // just the two calls made here rather than the full PrismaClient, so a stub stays small.
+  client: {
+    person: { updateMany: (args: Parameters<typeof db.person.updateMany>[0]) => Promise<{ count: number }> };
+    activity: { create: (args: { data: Parameters<typeof db.activity.create>[0]["data"] }) => Promise<unknown> };
+  } = db,
+): Promise<void> {
+  const { count } = await client.person.updateMany({
+    where: { id: personId, workspaceId, unsubscribedAt: unsubscribed ? null : { not: null } },
+    data: { unsubscribedAt: unsubscribed ? new Date() : null },
+  });
+  if (count === 0) return;
+
+  await client.activity.create({
+    data: {
+      workspaceId,
+      entityType: "person",
+      entityId: personId,
+      kind: unsubscribed ? "unsubscribed" : "resubscribed",
+      field: "Unsubscribed",
+      actorId,
+    },
+  });
+}
+
 function getSecret() {
   const secret = process.env.AUTH_SECRET;
   if (!secret) throw new Error("AUTH_SECRET is not set");

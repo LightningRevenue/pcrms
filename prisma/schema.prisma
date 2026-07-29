@@ -471,7 +471,7 @@ model Activity {
   id         String   @id @default(cuid())
   entityType String // "person" | "company" | "opportunity"
   entityId   String
-  kind       String   @default("field_update") // "created" | "field_update" | "opportunity_created" | "stage_changed" | "task_created" | "task_completed" | "email_sent" | "person_removed" | "company_removed"
+  kind       String   @default("field_update") // "created" | "field_update" | "opportunity_created" | "stage_changed" | "task_created" | "task_completed" | "email_sent" | "person_removed" | "company_removed" | "unsubscribed" | "resubscribed"
   field      String?
   oldValue   String?
   newValue   String?
@@ -524,6 +524,26 @@ model Opportunity {
   expectedCloseDate DateTime?
   createdAt         DateTime  @default(now())
   deletedAt         DateTime?
+
+  // ISO 4217 code. `value` stays a bare Int in this currency — no FX conversion anywhere, so
+  // cross-currency pipeline totals are a straight sum and only meaningful in a single-currency
+  // workspace. ponytail: no rate table, add one when a workspace actually mixes currencies.
+  currency String @default("USD")
+
+  // Per-deal win probability override, 0-100. Null means "use the stage's probability"
+  // (PipelineStage.probability), which itself falls back to the blended workspace win rate.
+  probability Int?
+
+  // Free text, captured when the deal is moved to a stage with outcome "lost". Cleared if it
+  // moves back to an open stage so a reopened deal doesn't carry a stale reason.
+  lostReason String?
+
+  // Where the deal came from ("Outbound", "Referral", …). Free text, mirrors lead attribution.
+  source String?
+
+  // "What's the next move" — the one field reps actually fill in. Distinct from Task: no due
+  // date, no completion, just a sentence the whole team can read off the deal card.
+  nextStepNote String?
 
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])

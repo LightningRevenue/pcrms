@@ -3,20 +3,30 @@
 import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { parseCsv } from "@/lib/csv";
-import { guessMapping, STANDARD_IMPORT_FIELDS, type ImportField } from "@/lib/import-fields";
+import {
+  guessMapping,
+  STANDARD_IMPORT_FIELDS,
+  withRequiredFields,
+  type ImportField,
+  type ImportableObjectType,
+} from "@/lib/import-fields";
+import { activeRequiredFields } from "@/lib/required-fields";
+import { getRequiredPersonFields } from "@/lib/actions/required-fields";
 import { importQueue } from "@/lib/import-queue";
-import type { ObjectType } from "@/lib/actions/custom-fields";
 import { assertLimit, checkLimit, EntitlementLimitError } from "@/lib/entitlements";
 
-export async function parseCsvPreview(objectType: ObjectType, csvText: string) {
+export async function parseCsvPreview(objectType: ImportableObjectType, csvText: string) {
   const { workspaceId } = await requireWorkspace();
   const rows = parseCsv(csvText);
   const [header, ...dataRows] = rows;
   if (!header) throw new Error("CSV appears to be empty");
 
   const customFields = await db.customFieldDefinition.findMany({ where: { workspaceId, objectType } });
+  // Required-field config is person-only; company imports keep just their built-in Name rule.
+  const requiredKeys =
+    objectType === "person" ? activeRequiredFields(await getRequiredPersonFields()).map((f) => f.key) : [];
   const fields: ImportField[] = [
-    ...STANDARD_IMPORT_FIELDS[objectType],
+    ...withRequiredFields(STANDARD_IMPORT_FIELDS[objectType], requiredKeys),
     ...customFields.map((f) => ({ key: `custom:${f.id}`, label: f.label, isCustom: true })),
   ];
 
@@ -30,7 +40,7 @@ export async function parseCsvPreview(objectType: ObjectType, csvText: string) {
 }
 
 export async function startImport(
-  objectType: ObjectType,
+  objectType: ImportableObjectType,
   name: string,
   csvText: string,
   mapping: Record<string, string>

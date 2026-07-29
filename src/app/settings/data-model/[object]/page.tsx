@@ -9,11 +9,13 @@ import { hasFeatureAccess } from "@/lib/entitlements";
 const OBJECT_LABELS: Record<ObjectType, string> = {
   company: "Companies",
   person: "People",
+  opportunity: "Deals",
 };
 
 const STANDARD_FIELDS: Record<ObjectType, string[]> = {
   company: ["Name", "Domain Name", "Address", "Linkedin", "Annual Revenue"],
   person: ["First name", "Last name", "Email", "Phone", "Job Title", "LinkedIn"],
+  opportunity: ["Name", "Amount", "Currency", "Stage", "Probability", "Expected close", "Source", "Next step", "Lost reason"],
 };
 
 export default async function ObjectFieldsPage({
@@ -22,7 +24,7 @@ export default async function ObjectFieldsPage({
   params: Promise<{ object: string }>;
 }) {
   const { object } = await params;
-  if (object !== "company" && object !== "person") notFound();
+  if (object !== "company" && object !== "person" && object !== "opportunity") notFound();
 
   const session = await auth();
   if (session?.user?.role !== "owner" && session?.user?.role !== "admin") {

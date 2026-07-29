@@ -1,10 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useSession } from "next-auth/react";
-import { X, Mail, Phone, Building2, Briefcase, Link2, CalendarDays, UserCircle } from "lucide-react";
+import { X, Mail, Phone, Building2, Briefcase, Link2, CalendarDays, UserCircle, Factory, Globe, Users, DollarSign } from "lucide-react";
 import { createContact } from "@/lib/actions/contacts";
 import { FieldSection } from "@/components/field-section";
+import {
+  activeRequiredFields,
+  missingRequiredFields,
+  requiredFieldsError,
+  REQUIRED_FIELDS_OFF,
+  type RequiredFieldsConfig,
+} from "@/lib/required-fields";
+import { getRequiredPersonFields } from "@/lib/actions/required-fields";
 
 function EditableField({
   icon: Icon,
@@ -12,18 +20,21 @@ function EditableField({
   value,
   onChange,
   placeholder,
+  required,
 }: {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  required?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
       <div className="flex items-center gap-2 w-28 shrink-0 text-[13px] text-subtle truncate">
         <Icon size={14} strokeWidth={1.75} />
         {label}
+        {required && <span className="text-red-400" title="Required">*</span>}
       </div>
       <input
         value={value}
@@ -37,6 +48,13 @@ function EditableField({
 
 export function CreateContactPanel({ onClose }: { onClose: () => void }) {
   const { data: session } = useSession();
+  // Fetched here rather than drilled through ContactsView — the panel is the only consumer, and
+  // it mounts only when the user actually opens it. Save is validated server-side regardless,
+  // so a slow fetch can't let an invalid contact through.
+  const [requiredFields, setRequiredFields] = useState<RequiredFieldsConfig>(REQUIRED_FIELDS_OFF);
+  useEffect(() => {
+    getRequiredPersonFields().then(setRequiredFields).catch(() => {});
+  }, []);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -44,18 +62,34 @@ export function CreateContactPanel({ onClose }: { onClose: () => void }) {
   const [company, setCompany] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [linkedin, setLinkedin] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [country, setCountry] = useState("");
+  const [employeeCount, setEmployeeCount] = useState("");
+  const [annualRevenue, setAnnualRevenue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const values = { firstName, lastName, email, phone, company, jobTitle, linkedin, industry, country, employeeCount, annualRevenue };
+  const isRequired = (key: string) => activeRequiredFields(requiredFields).some((f) => f.key === key);
+  // Company fields only make sense once there's a company to attach them to — createContact can
+  // also derive one from the email domain, so the section shows whenever either is present.
+  const showCompanySection =
+    activeRequiredFields(requiredFields).some((f) => f.on === "company");
 
   function handleSave() {
     if (!firstName.trim()) {
       setError("First name is required");
       return;
     }
+    const missing = missingRequiredFields(values, requiredFields);
+    if (missing.length > 0) {
+      setError(requiredFieldsError(missing));
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
-        await createContact({ firstName, lastName, email, phone, company, jobTitle, linkedin });
+        await createContact(values);
         onClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
@@ -79,7 +113,7 @@ export function CreateContactPanel({ onClose }: { onClose: () => void }) {
             <input
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              placeholder="Last name"
+              placeholder={isRequired("lastName") ? "Last name *" : "Last name"}
               className="w-28 bg-transparent text-[13px] font-medium outline-none border-b border-transparent focus:border-border placeholder:text-subtle placeholder:font-normal"
             />
           </div>
@@ -92,17 +126,35 @@ export function CreateContactPanel({ onClose }: { onClose: () => void }) {
           <p className="text-[12px] font-medium text-subtle uppercase tracking-wide px-1 pb-1">Fields</p>
 
           <FieldSection title="General">
-            <EditableField icon={Mail} label="Email" value={email} onChange={setEmail} placeholder="Email" />
-            <EditableField icon={Phone} label="Phone" value={phone} onChange={setPhone} placeholder="Phone" />
+            <EditableField icon={Mail} label="Email" value={email} onChange={setEmail} placeholder="Email" required={isRequired("email")} />
+            <EditableField icon={Phone} label="Phone" value={phone} onChange={setPhone} placeholder="Phone" required={isRequired("phone")} />
           </FieldSection>
 
           <FieldSection title="Work">
-            <EditableField icon={Building2} label="Company" value={company} onChange={setCompany} placeholder="Company" />
-            <EditableField icon={Briefcase} label="Job Title" value={jobTitle} onChange={setJobTitle} placeholder="Job title" />
+            <EditableField icon={Building2} label="Company" value={company} onChange={setCompany} placeholder="Company" required={isRequired("company")} />
+            <EditableField icon={Briefcase} label="Job Title" value={jobTitle} onChange={setJobTitle} placeholder="Job title" required={isRequired("jobTitle")} />
           </FieldSection>
 
+          {showCompanySection && (
+            <FieldSection title="Company details">
+              <p className="px-1 pb-1 text-[12px] text-subtle">Saved on the contact&apos;s company.</p>
+              {isRequired("industry") && (
+                <EditableField icon={Factory} label="Industry" value={industry} onChange={setIndustry} placeholder="Industry" required />
+              )}
+              {isRequired("country") && (
+                <EditableField icon={Globe} label="Country" value={country} onChange={setCountry} placeholder="Country" required />
+              )}
+              {isRequired("employeeCount") && (
+                <EditableField icon={Users} label="Employees" value={employeeCount} onChange={setEmployeeCount} placeholder="e.g. 120" required />
+              )}
+              {isRequired("annualRevenue") && (
+                <EditableField icon={DollarSign} label="Revenue" value={annualRevenue} onChange={setAnnualRevenue} placeholder="e.g. $5M" required />
+              )}
+            </FieldSection>
+          )}
+
           <FieldSection title="Social">
-            <EditableField icon={Link2} label="LinkedIn" value={linkedin} onChange={setLinkedin} placeholder="LinkedIn" />
+            <EditableField icon={Link2} label="LinkedIn" value={linkedin} onChange={setLinkedin} placeholder="LinkedIn" required={isRequired("linkedin")} />
           </FieldSection>
 
           <FieldSection title="System">

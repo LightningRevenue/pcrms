@@ -6,7 +6,7 @@ import { ImportMappingModal } from "@/components/import-mapping-modal";
 import { ImportProgressOverlay } from "@/components/import-progress-overlay";
 import { parseCsvPreview, startImport } from "@/lib/actions/import";
 import { exampleCsv } from "@/lib/import-example";
-import type { ObjectType } from "@/lib/actions/custom-fields";
+import type { ImportableObjectType } from "@/lib/import-fields";
 import type { ImportField } from "@/lib/import-fields";
 
 type Preview = {
@@ -17,7 +17,7 @@ type Preview = {
   suggestedMapping: Record<string, string | null>;
 };
 
-const OBJECT_TYPES: { key: ObjectType; label: string; icon: typeof Building2 }[] = [
+const OBJECT_TYPES: { key: ImportableObjectType; label: string; icon: typeof Building2 }[] = [
   { key: "company", label: "Companies", icon: Building2 },
   { key: "person", label: "People", icon: Users },
 ];
@@ -32,8 +32,8 @@ function downloadFile(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ImportPanel() {
-  const [objectType, setObjectType] = useState<ObjectType>("company");
+export function ImportPanel({ requiredPersonKeys = [] }: { requiredPersonKeys?: string[] }) {
+  const [objectType, setObjectType] = useState<ImportableObjectType>("company");
   const [csvText, setCsvText] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -98,7 +98,12 @@ export function ImportPanel() {
         <p className="text-[13px] font-medium">1. Get the template</p>
         <p className="text-[12px] text-subtle mt-1">Download an example CSV with the expected columns.</p>
         <button
-          onClick={() => downloadFile(`${objectType}-import-example.csv`, exampleCsv(objectType))}
+          onClick={() =>
+            downloadFile(
+              `${objectType}-import-example.csv`,
+              exampleCsv(objectType, objectType === "person" ? requiredPersonKeys : [])
+            )
+          }
           className="flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
         >
           <Download size={14} strokeWidth={1.75} />

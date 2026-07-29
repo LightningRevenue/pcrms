@@ -11,6 +11,9 @@ export const SETTING_KEYS = {
   // emails." link text — lets a workspace localize it or add extra wording. Set from
   // Settings > GDPR. Falls back to the default in unsubscribe-footer.ts when unset.
   unsubscribeFooterText: "unsubscribe_footer_text",
+  // JSON {enforced, keys[]} — fields a Person must have before it can be created, from the
+  // New Person panel or a CSV import. See required-fields.ts. Set from Settings > Required fields.
+  requiredPersonFields: "required_person_fields",
 } as const;
 
 // workspaceId is omitted for the genuinely global keys (app_base_url, tracking_domain);

@@ -4,6 +4,15 @@ import { deriveCompanyNameFromEmail } from "@/lib/company-from-email";
 import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
 import { deriveJobTitleFields } from "@/lib/job-title";
 import { deriveRevenueRange, parseEmployeeCountInput } from "@/lib/firmographics";
+import { caenToIndustry } from "@/lib/caen";
+import { getSetting, SETTING_KEYS } from "@/lib/workspace-settings";
+import {
+  missingRequiredFields,
+  parseRequiredFields,
+  requiredFieldsError,
+  REQUIRED_FIELDS_OFF,
+  type RequiredFieldsConfig,
+} from "@/lib/required-fields";
 import type { ObjectType } from "@/lib/actions/custom-fields";
 
 export type ImportJobData = {
@@ -28,6 +37,34 @@ async function resolveCompanyId(workspaceId: string, name: string, userId: strin
   return company.id;
 }
 
+// A person CSV can carry firmographic columns; they describe the row's company, so they're
+// written there. Fills blanks only — the first row that mentions Acme sets its industry, later
+// rows don't overwrite it (and neither does an import touch a company already filled in).
+async function applyCompanyFirmographics(companyId: string, record: Record<string, string>) {
+  const annualRevenue = record.annualRevenue?.trim() || null;
+  const data: Record<string, string | number | null> = {
+    industry: caenToIndustry(record.industry?.trim()) || null,
+    country: record.country?.trim() || null,
+    annualRevenue,
+    revenueRange: record.revenueRange?.trim() || deriveRevenueRange(annualRevenue),
+    employeeCount: parseEmployeeCountInput(record.employeeCount),
+  };
+
+  const filled = Object.entries(data).filter(([, v]) => v !== null && v !== undefined);
+  if (filled.length === 0) return;
+
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { industry: true, country: true, annualRevenue: true, revenueRange: true, employeeCount: true },
+  });
+  if (!company) return;
+
+  const patch = Object.fromEntries(filled.filter(([k]) => !company[k as keyof typeof company]));
+  if (Object.keys(patch).length === 0) return;
+
+  await db.company.update({ where: { id: companyId }, data: patch });
+}
+
 export async function runImport(data: ImportJobData) {
   const { batchId, objectType, csvText, mapping, userId, workspaceId } = data;
 
@@ -48,6 +85,12 @@ export async function runImport(data: ImportJobData) {
   // Fetched once per batch, not per row — every imported person lands on the same default
   // stage (or null, if the workspace hasn't set one), same as a manually-created contact.
   const defaultStage = objectType === "person" ? await getDefaultContactStageLabel(workspaceId) : null;
+  // Same config the New Person panel enforces, read once per batch. A row missing a required
+  // field fails on its own and lands in `errors`; the rest of the batch still imports.
+  const requiredFields =
+    objectType === "person"
+      ? parseRequiredFields(await getSetting(SETTING_KEYS.requiredPersonFields, workspaceId))
+      : REQUIRED_FIELDS_OFF;
 
   const errors: RowError[] = [];
   let success = 0;
@@ -65,7 +108,7 @@ export async function runImport(data: ImportJobData) {
       if (objectType === "company") {
         await importCompanyRow(workspaceId, record, batchId, userId, customFieldById);
       } else {
-        await importPersonRow(workspaceId, record, batchId, userId, customFieldById, defaultStage);
+        await importPersonRow(workspaceId, record, batchId, userId, customFieldById, defaultStage, requiredFields);
       }
       success++;
     } catch (e) {
@@ -105,7 +148,7 @@ async function importCompanyRow(
       address: record.address || null,
       linkedin: record.linkedin || null,
       annualRevenue: record.annualRevenue || null,
-      industry: record.industry || null,
+      industry: caenToIndustry(record.industry) || null,
       country: record.country || null,
       // An explicit Revenue Range column wins; otherwise derive it from Annual Revenue so the
       // filterable field is populated either way.
@@ -132,15 +175,20 @@ async function importPersonRow(
   batchId: string,
   userId: string,
   customFieldById: Map<string, { id: string; key: string; label: string }>,
-  defaultStage: string | null
+  defaultStage: string | null,
+  requiredFields: RequiredFieldsConfig
 ) {
   const firstName = record.firstName?.trim();
   if (!firstName) throw new Error("First name is required");
+
+  const missing = missingRequiredFields(record, requiredFields);
+  if (missing.length > 0) throw new Error(requiredFieldsError(missing));
 
   const email = record.email || null;
   const companyName = record.company?.trim() || (email ? deriveCompanyNameFromEmail(email) : null);
   const emailDomain = email && !record.company?.trim() ? email.split("@")[1]?.toLowerCase().trim() : null;
   const companyId = companyName ? await resolveCompanyId(workspaceId, companyName, userId, batchId, emailDomain) : undefined;
+  if (companyId) await applyCompanyFirmographics(companyId, record);
 
   const person = await db.person.create({
     data: {

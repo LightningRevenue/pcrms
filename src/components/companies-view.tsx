@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { CreateCompanyPanel } from "@/components/create-company-panel";
 import { BulkFieldDialog } from "@/components/bulk-field-dialog";
-import { bulkUpdateCompanyField, type BulkCompanyField } from "@/lib/actions/bulk-fields";
+import { bulkUpdateCompanyField } from "@/lib/actions/bulk-fields";
+import type { BulkCompanyField } from "@/lib/bulk-fields";
 import { INDUSTRIES, COUNTRIES, REVENUE_RANGES, EMPLOYEE_BUCKETS } from "@/lib/firmographics";
 import { CompanyLogo } from "@/components/company-logo";
 import { deleteCompanies } from "@/lib/actions/companies";

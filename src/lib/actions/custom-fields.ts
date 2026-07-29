@@ -5,17 +5,19 @@ import { requireWorkspace } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { assertLimit } from "@/lib/entitlements";
 
-export type ObjectType = "company" | "person";
+export type ObjectType = "company" | "person" | "opportunity";
 export type CustomFieldType = "TEXT" | "NUMBER" | "DATE" | "SELECT";
 
 const SETTINGS_PATH: Record<ObjectType, string> = {
   company: "/settings/data-model/company",
   person: "/settings/data-model/person",
+  opportunity: "/settings/data-model/opportunity",
 };
 
 const RECORD_LIST_PATH: Record<ObjectType, string> = {
   company: "/companies",
   person: "/contacts",
+  opportunity: "/deals",
 };
 
 function slugify(label: string) {

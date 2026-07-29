@@ -1,6 +1,9 @@
 "use client";
 
-import type { Mail } from "lucide-react";
+import { useState, useTransition } from "react";
+import { Check, type Mail } from "lucide-react";
+import { toggleTask } from "@/lib/actions/tasks";
+import type { NextStep } from "@/lib/next-step";
 
 // Shared building blocks for the Salesforce-style highlights bars on /lead/[id] and
 // /companies/[id]. Only the small pieces are shared — each bar keeps its own layout, since
@@ -86,4 +89,56 @@ export function dueLabel(date: Date | null) {
   if (days === 0) return "due today";
   if (days === 1) return "due tomorrow";
   return `due in ${days}d`;
+}
+
+/** "What to do next" line — an open task (completable inline), a pending sequence step, or how
+ *  stale the record is. Shared by the lead and deal highlights bars. */
+export function NextStepChip({ step }: { step: NextStep }) {
+  const [done, setDone] = useState(false);
+  const [, startTransition] = useTransition();
+
+  if (step.kind === "idle") {
+    const days = step.lastTouch
+      ? Math.round((Date.now() - step.lastTouch.getTime()) / 86_400_000)
+      : null;
+    return (
+      <p className="text-[12px] text-subtle">
+        No next step ·{" "}
+        {days === null ? "never contacted" : days === 0 ? "last touch today" : `last touch ${days}d ago`}
+      </p>
+    );
+  }
+
+  if (step.kind === "sequence") {
+    return (
+      <p className="text-[12px]">
+        <span className="text-subtle">Next: </span>
+        {step.label}
+        <span className="text-subtle"> · {dueLabel(step.runAt)}</span>
+      </p>
+    );
+  }
+
+  const overdue = !!step.dueAt && step.dueAt.getTime() < Date.now();
+
+  return (
+    <div className="flex items-center gap-1.5 text-[12px]">
+      <button
+        onClick={() => {
+          setDone(true);
+          startTransition(() => toggleTask(step.id));
+        }}
+        disabled={done}
+        title="Mark complete"
+        className="flex items-center justify-center size-4 shrink-0 rounded-full border border-border hover:border-accent hover:bg-accent/10 transition-colors disabled:opacity-50"
+      >
+        {done && <Check size={10} strokeWidth={3} className="text-accent" />}
+      </button>
+      <span className={done ? "line-through text-subtle" : ""}>
+        <span className="text-subtle">Next: </span>
+        {step.title}
+        <span className={overdue && !done ? "text-red-400" : "text-subtle"}> · {dueLabel(step.dueAt)}</span>
+      </span>
+    </div>
+  );
 }

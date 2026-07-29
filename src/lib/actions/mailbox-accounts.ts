@@ -13,6 +13,7 @@ import type { MailboxAccount } from "@prisma/client";
 import { assertLimit } from "@/lib/entitlements";
 import { assertNotUnsubscribed } from "@/lib/gdpr";
 import { buildUnsubscribeUrl, unsubscribeHeaders, appendUnsubscribeFooter } from "@/lib/unsubscribe-footer";
+import { buildReferences } from "@/lib/email-threading";
 
 export async function listMailboxAccounts() {
   const { workspaceId } = await requireWorkspace();
@@ -255,6 +256,17 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     ? await db.email.findUnique({ where: { id: input.replyToEmailId, workspaceId: input.workspaceId } })
     : null;
 
+  // References = every ancestor Message-ID, oldest first. Email has no `references` column, so
+  // rebuild the chain by walking inReplyTo back to the thread root.
+  // ponytail: one query per ancestor; campaigns are <10 steps deep. Denormalize a `references`
+  // column if this ever runs on deep threads.
+  const references = await buildReferences(replyTo, (messageId) =>
+    db.email.findFirst({
+      where: { workspaceId: input.workspaceId, messageIdHeader: messageId },
+      select: { messageIdHeader: true, inReplyTo: true },
+    }),
+  );
+
   const [subject, interpolatedBody, unsubscribeUrl] = await Promise.all([
     interpolateForPerson(input.subject, input.personId, input.workspaceId),
     interpolateForPerson(input.bodyHtml, input.personId, input.workspaceId),
@@ -281,7 +293,9 @@ export async function sendViaMailboxAccount(input: SendViaMailboxAccountInput) {
     subject,
     html: bodyHtml + (input.trackingPixelHtml ?? ""),
     inReplyTo: replyTo?.messageIdHeader ?? undefined,
-    references: replyTo?.messageIdHeader ?? undefined,
+    // Full chain, not just the parent — strict clients (and Gmail's conversation grouping on
+    // long sequences) need every ancestor Message-ID, oldest first.
+    references: references.length ? references : undefined,
     headers: unsubscribeHeaders(unsubscribeUrl),
   });
 

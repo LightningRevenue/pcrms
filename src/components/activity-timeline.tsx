@@ -1,4 +1,4 @@
-import { PlusCircle, Pencil, ArrowRightLeft, CheckSquare, Mail, UserMinus, Phone } from "lucide-react";
+import { PlusCircle, Pencil, ArrowRightLeft, CheckSquare, Mail, UserMinus, Phone, BellOff, BellRing } from "lucide-react";
 import type { User } from "@prisma/client";
 
 export type ActivityEntry = {
@@ -32,6 +32,8 @@ const ICONS: Record<string, typeof PlusCircle> = {
   call_logged: Phone,
   person_removed: UserMinus,
   company_removed: UserMinus,
+  unsubscribed: BellOff,
+  resubscribed: BellRing,
 };
 
 function describe(e: ActivityEntry, actor: string) {
@@ -81,6 +83,26 @@ function describe(e: ActivityEntry, actor: string) {
       return (
         <>
           <span className="font-medium">{e.newValue}</span> by <span className="font-medium">{actor}</span>
+        </>
+      );
+    // A null actor means the recipient clicked the unsubscribe link in an email themselves —
+    // they're not a workspace User, so there's no name to credit.
+    case "unsubscribed":
+      return e.actor ? (
+        <>
+          marked as <span className="font-medium">unsubscribed</span> by{" "}
+          <span className="font-medium">{actor}</span>
+        </>
+      ) : (
+        <>
+          <span className="font-medium">unsubscribed</span> from emails
+        </>
+      );
+    case "resubscribed":
+      return (
+        <>
+          <span className="font-medium">resubscribed</span> to emails by{" "}
+          <span className="font-medium">{actor}</span>
         </>
       );
     case "person_removed":

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   User,
+  Asterisk,
   BookOpen,
   Mail,
   Calendar,
@@ -57,6 +58,7 @@ const SECTIONS = [
     items: [
       { href: "/settings/general", label: "General", icon: Settings2 },
       { href: "/settings/data-model", label: "Data model", icon: Database },
+      { href: "/settings/required-fields", label: "Required fields", icon: Asterisk },
       { href: "/settings/pipeline", label: "Pipeline", icon: Target },
       { href: "/settings/contacts-pipeline", label: "Contacts Pipeline", icon: Users2 },
       { href: "/settings/import", label: "Import", icon: Upload },

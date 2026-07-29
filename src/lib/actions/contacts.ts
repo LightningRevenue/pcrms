@@ -9,6 +9,9 @@ import { assertLimit } from "@/lib/entitlements";
 import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stages";
 import { sendOwnershipEmail } from "@/lib/ownership-notification";
 import { deriveJobTitleFields } from "@/lib/job-title";
+import { deriveRevenueRange, parseEmployeeCountInput } from "@/lib/firmographics";
+import { missingRequiredFields, requiredFieldsError } from "@/lib/required-fields";
+import { getRequiredPersonFields } from "@/lib/actions/required-fields";
 
 export type CreateContactInput = {
   firstName: string;
@@ -18,11 +21,48 @@ export type CreateContactInput = {
   company?: string;
   jobTitle?: string;
   linkedin?: string;
+  // Firmographics — stored on the resolved Company, not the Person. Only sent by the New Person
+  // panel when the workspace requires them (see required-fields.ts).
+  industry?: string;
+  country?: string;
+  employeeCount?: string;
+  annualRevenue?: string;
 };
 
 const FIELD_LABELS = PERSON_FIELD_LABELS;
 
 export type PersonField = keyof typeof FIELD_LABELS;
+
+// Firmographics typed into the New Person panel belong to the company, so they're written to
+// the resolved one. Only fills blanks — an existing company that already has an industry keeps
+// it, since a contact form is a weaker source of truth than the company record itself.
+async function applyCompanyFirmographics(companyId: string, input: CreateContactInput) {
+  const annualRevenue = input.annualRevenue?.trim() || null;
+  const employeeCount = parseEmployeeCountInput(input.employeeCount);
+  const data = {
+    industry: input.industry?.trim() || null,
+    country: input.country?.trim() || null,
+    annualRevenue,
+    revenueRange: deriveRevenueRange(annualRevenue),
+    employeeCount,
+  };
+
+  const filled = Object.entries(data).filter(([, v]) => v !== null && v !== undefined);
+  if (filled.length === 0) return;
+
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { industry: true, country: true, annualRevenue: true, revenueRange: true, employeeCount: true },
+  });
+  if (!company) return;
+
+  const patch = Object.fromEntries(
+    filled.filter(([k]) => !company[k as keyof typeof company])
+  );
+  if (Object.keys(patch).length === 0) return;
+
+  await db.company.update({ where: { id: companyId }, data: patch });
+}
 
 async function resolveCompanyId(workspaceId: string, name: string, domain?: string | null) {
   const existing = await db.company.findFirst({ where: { workspaceId, name } });
@@ -40,10 +80,16 @@ export async function createContact(input: CreateContactInput) {
   const firstName = input.firstName.trim();
   if (!firstName) throw new Error("First name is required");
 
+  // Enforced server-side too, not just in the panel — createContact is also reachable from the
+  // inbox lead panel, the mail verifier and the public API.
+  const missing = missingRequiredFields(input, await getRequiredPersonFields());
+  if (missing.length > 0) throw new Error(requiredFieldsError(missing));
+
   const email = input.email?.trim() || null;
   const companyName = input.company?.trim() || (email ? deriveCompanyNameFromEmail(email) : null);
   const emailDomain = email && !input.company?.trim() ? email.split("@")[1]?.toLowerCase().trim() : null;
   const companyId = companyName ? await resolveCompanyId(workspaceId, companyName, emailDomain) : undefined;
+  if (companyId) await applyCompanyFirmographics(companyId, input);
   const stage = await getDefaultContactStageLabel(workspaceId);
 
   const jobTitle = input.jobTitle?.trim() || null;

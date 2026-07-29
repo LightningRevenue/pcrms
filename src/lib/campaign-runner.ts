@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { sendViaMailboxAccount } from "@/lib/actions/mailbox-accounts";
 import { getTrackingBaseUrlForWorker } from "@/lib/workspace-settings";
+import { replySubject } from "@/lib/email-threading";
 
 const CRON_JOB_NAME = "campaign-step-runner";
 
@@ -149,10 +150,25 @@ async function executeCampaignStepRun(run: {
   });
   if (!body) throw new Error("No content configured for this step/variant");
 
-  const subject = body.templateId ? body.template!.subject : body.subject ?? "";
   const bodyHtml = body.templateId ? body.template!.bodyHtml : body.bodyHtml ?? "";
 
-  const mailboxAccountId = await pickMailboxAccountId(member.campaignId, run.workspaceId);
+  // Follow-ups continue the thread of whatever we last sent this member, so they land as
+  // replies in the recipient's client instead of N unrelated messages.
+  const previous = await db.email.findFirst({
+    where: { workspaceId: run.workspaceId, campaignMemberId: member.id, direction: "sent" },
+    orderBy: { sentAt: "desc" },
+    select: { id: true, subject: true, mailboxAccountId: true },
+  });
+
+  // A reply keeps the original subject (Re:-prefixed) — a new subject line breaks threading
+  // in clients that group by subject as well as by References.
+  const stepSubject = body.templateId ? body.template!.subject : body.subject ?? "";
+  const subject = previous ? replySubject(previous.subject) : stepSubject;
+
+  // Threading only holds if the reply leaves the same mailbox — round-robin would otherwise
+  // send step 2 from a different inbox than the thread it's replying to.
+  const mailboxAccountId =
+    previous?.mailboxAccountId ?? (await pickMailboxAccountId(member.campaignId, run.workspaceId));
 
   const emailId = crypto.randomUUID();
   const trackingBaseUrl = await getTrackingBaseUrlForWorker();
@@ -172,6 +188,7 @@ async function executeCampaignStepRun(run: {
       senderId: member.addedById ?? undefined,
       campaignMemberId: member.id,
       trackingPixelHtml,
+      replyToEmailId: previous?.id,
     });
   } catch (err) {
     throw new CampaignSendError(err instanceof Error ? err.message : String(err), mailboxAccountId);

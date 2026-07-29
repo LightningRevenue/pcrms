@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { verifyUnsubscribeToken } from "@/lib/gdpr";
+import { setUnsubscribed, verifyUnsubscribeToken } from "@/lib/gdpr";
 
 async function unsubscribe(token: string) {
   const personId = verifyUnsubscribeToken(token);
   if (!personId) return false;
 
+  const person = await db.person.findUnique({ where: { id: personId }, select: { workspaceId: true } });
+  if (!person) return false;
+
   // Idempotent — clicking twice, or a mail client prefetching the link, shouldn't error or
-  // overwrite an earlier unsubscribedAt timestamp.
-  await db.person.updateMany({ where: { id: personId, unsubscribedAt: null }, data: { unsubscribedAt: new Date() } });
+  // overwrite an earlier unsubscribedAt timestamp (setUnsubscribed no-ops in that case).
+  await setUnsubscribed(personId, person.workspaceId, true, null);
   return true;
 }
 

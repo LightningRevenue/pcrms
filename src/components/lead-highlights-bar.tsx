@@ -16,7 +16,6 @@ import {
   Building2,
   Phone,
   UserCircle,
-  Check,
   BookOpen,
 } from "lucide-react";
 import { ConvertToOpportunityPanel, type NewOpportunityDraft } from "@/components/convert-to-opportunity-panel";
@@ -30,10 +29,10 @@ import { CompanyLogo } from "@/components/company-logo";
 import { ContactPlaybooksPanel } from "@/components/contact-playbooks-panel";
 import { CompanyAutocompleteField } from "@/components/company-autocomplete-field";
 import { OwnerSelect } from "@/components/owner-select";
-import { NameInput, HighlightField, ActionButton, dueLabel } from "@/components/highlights-primitives";
+import { NameInput, HighlightField, ActionButton, NextStepChip } from "@/components/highlights-primitives";
 import { convertContactToOpportunity } from "@/lib/actions/opportunities";
 import { deleteContacts, setPersonCompany, setPersonOwner, updatePersonField, type PersonField } from "@/lib/actions/contacts";
-import { createTask, toggleTask } from "@/lib/actions/tasks";
+import { createTask } from "@/lib/actions/tasks";
 import { createNote } from "@/lib/actions/notes";
 import type { NextStep } from "@/lib/next-step";
 
@@ -368,59 +367,3 @@ export function LeadHighlightsBar({
     </div>
   );
 }
-
-
-
-
-
-
-function NextStepChip({ step }: { step: NextStep }) {
-  const [done, setDone] = useState(false);
-  const [, startTransition] = useTransition();
-
-  if (step.kind === "idle") {
-    const days = step.lastTouch
-      ? Math.round((Date.now() - step.lastTouch.getTime()) / 86_400_000)
-      : null;
-    return (
-      <p className="text-[12px] text-subtle">
-        No next step ·{" "}
-        {days === null ? "never contacted" : days === 0 ? "last touch today" : `last touch ${days}d ago`}
-      </p>
-    );
-  }
-
-  if (step.kind === "sequence") {
-    return (
-      <p className="text-[12px]">
-        <span className="text-subtle">Next: </span>
-        {step.label}
-        <span className="text-subtle"> · {dueLabel(step.runAt)}</span>
-      </p>
-    );
-  }
-
-  const overdue = !!step.dueAt && step.dueAt.getTime() < Date.now();
-
-  return (
-    <div className="flex items-center gap-1.5 text-[12px]">
-      <button
-        onClick={() => {
-          setDone(true);
-          startTransition(() => toggleTask(step.id));
-        }}
-        disabled={done}
-        title="Mark complete"
-        className="flex items-center justify-center size-4 shrink-0 rounded-full border border-border hover:border-accent hover:bg-accent/10 transition-colors disabled:opacity-50"
-      >
-        {done && <Check size={10} strokeWidth={3} className="text-accent" />}
-      </button>
-      <span className={done ? "line-through text-subtle" : ""}>
-        <span className="text-subtle">Next: </span>
-        {step.title}
-        <span className={overdue && !done ? "text-red-400" : "text-subtle"}> · {dueLabel(step.dueAt)}</span>
-      </span>
-    </div>
-  );
-}
-

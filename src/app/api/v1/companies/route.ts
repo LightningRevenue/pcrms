@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireApiKey } from "@/lib/api-key";
 import { assertLimit } from "@/lib/entitlements";
 import { deriveRevenueRange, parseEmployeeCountInput } from "@/lib/firmographics";
+import { caenToIndustry } from "@/lib/caen";
 
 export async function POST(req: Request) {
   let workspaceId: string;
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
       address: body.address?.trim() || null,
       linkedin: body.linkedin?.trim() || null,
       annualRevenue: body.annualRevenue?.trim() || null,
-      industry: body.industry?.trim() || null,
+      industry: caenToIndustry(body.industry?.trim()) || null,
       country: body.country?.trim() || null,
       // Explicit range wins; otherwise derived from annualRevenue, same as the UI and import.
       revenueRange: body.revenueRange?.trim() || deriveRevenueRange(body.annualRevenue),

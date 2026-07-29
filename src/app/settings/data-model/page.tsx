@@ -20,12 +20,12 @@ import {
   Compass,
 } from "lucide-react";
 
-const STANDARD_FIELD_COUNT = { company: 5, person: 6 };
+// Keep in sync with STANDARD_FIELDS in settings/data-model/[object]/page.tsx.
+const STANDARD_FIELD_COUNT = { company: 5, person: 6, opportunity: 9 };
 
 const MOCK_OBJECTS = [
   { name: "Dashboards", icon: LayoutGrid, fields: 9, records: 0 },
   { name: "Notes", icon: StickyNote, fields: 10, records: 0 },
-  { name: "Opportunities", icon: Target, fields: 18, records: 0 },
   { name: "Tasks", icon: CheckSquare, fields: 13, records: 0 },
   { name: "Workflows", icon: Workflow, fields: 13, records: 0 },
 ];
@@ -38,11 +38,20 @@ export default async function DataModelPage() {
 
   const { workspaceId } = await requireWorkspace();
 
-  const [companyCustomFields, personCustomFields, companyCount, personCount] = await Promise.all([
+  const [
+    companyCustomFields,
+    personCustomFields,
+    opportunityCustomFields,
+    companyCount,
+    personCount,
+    opportunityCount,
+  ] = await Promise.all([
     listFieldDefinitions("company"),
     listFieldDefinitions("person"),
+    listFieldDefinitions("opportunity"),
     db.company.count({ where: { workspaceId, deletedAt: null } }),
     db.person.count({ where: { workspaceId, deletedAt: null } }),
+    db.opportunity.count({ where: { workspaceId, deletedAt: null } }),
   ]);
 
   const objects = [
@@ -59,6 +68,13 @@ export default async function DataModelPage() {
       href: "/settings/data-model/person",
       fields: STANDARD_FIELD_COUNT.person + personCustomFields.length,
       records: personCount,
+    },
+    {
+      name: "Deals",
+      icon: Target,
+      href: "/settings/data-model/opportunity",
+      fields: STANDARD_FIELD_COUNT.opportunity + opportunityCustomFields.length,
+      records: opportunityCount,
     },
     ...MOCK_OBJECTS.map((o) => ({ ...o, href: null as string | null })),
   ];

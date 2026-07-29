@@ -58,6 +58,38 @@ export async function listOpportunityLinksForPerson(personId: string) {
   });
 }
 
+export async function listPeopleForOpportunity(opportunityId: string) {
+  const { workspaceId } = await requireWorkspace();
+  return db.opportunityPerson.findMany({
+    where: { workspaceId, opportunityId },
+    include: { person: { include: { company: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function searchPeopleToLink(query: string) {
+  const { workspaceId } = await requireWorkspace();
+  const q = query.trim();
+  return db.person.findMany({
+    where: {
+      workspaceId,
+      deletedAt: null,
+      ...(q
+        ? {
+            OR: [
+              { firstName: { contains: q, mode: "insensitive" as const } },
+              { lastName: { contains: q, mode: "insensitive" as const } },
+              { email: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 8,
+    select: { id: true, firstName: true, lastName: true, email: true },
+  });
+}
+
 export async function linkPersonToOpportunity(personId: string, opportunityId: string, role?: string) {
   const { workspaceId } = await requireWorkspace();
 
@@ -71,10 +103,23 @@ export async function linkPersonToOpportunity(personId: string, opportunityId: s
   });
 
   revalidatePath(`/lead/${personId}`);
+  revalidatePath(`/deals/${opportunityId}`);
+}
+
+// Role is per-relationship ("Champion", "Economic Buyer"), so this only touches the join row —
+// it never writes to Person.jobTitle.
+export async function setOpportunityPersonRole(personId: string, opportunityId: string, role: string) {
+  const { workspaceId } = await requireWorkspace();
+  await db.opportunityPerson.updateMany({
+    where: { workspaceId, personId, opportunityId },
+    data: { role: role.trim() || null },
+  });
+  revalidatePath(`/deals/${opportunityId}`);
 }
 
 export async function unlinkPersonFromOpportunity(personId: string, opportunityId: string) {
   const { workspaceId } = await requireWorkspace();
   await db.opportunityPerson.deleteMany({ where: { workspaceId, personId, opportunityId } });
   revalidatePath(`/lead/${personId}`);
+  revalidatePath(`/deals/${opportunityId}`);
 }

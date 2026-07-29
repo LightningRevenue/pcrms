@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkspace, requireWorkspaceOwner } from "@/lib/workspace";
 import { db } from "@/lib/db";
-import { isGdprModuleEnabled } from "@/lib/gdpr";
+import { isGdprModuleEnabled, setUnsubscribed } from "@/lib/gdpr";
 import { getSetting, setSetting, SETTING_KEYS } from "@/lib/workspace-settings";
 
 async function requireGdprAccess() {
@@ -92,11 +92,8 @@ export async function searchContactsForGdpr(query: string) {
 }
 
 export async function setPersonUnsubscribed(personId: string, unsubscribed: boolean) {
-  const { workspaceId } = await requireGdprAccess();
-  await db.person.update({
-    where: { id: personId, workspaceId },
-    data: { unsubscribedAt: unsubscribed ? new Date() : null },
-  });
+  const { workspaceId, userId } = await requireGdprAccess();
+  await setUnsubscribed(personId, workspaceId, unsubscribed, userId);
   revalidatePath("/settings/gdpr");
 }
 
@@ -110,10 +107,7 @@ export async function toggleContactUnsubscribe(personId: string, unsubscribed: b
   if (!(await isGdprModuleEnabled(ctx.workspaceId))) throw new Error("GDPR module is not enabled on your plan");
   if (!unsubscribed && ctx.role !== "owner") throw new Error("Only the workspace owner can resubscribe a contact");
 
-  await db.person.update({
-    where: { id: personId, workspaceId: ctx.workspaceId },
-    data: { unsubscribedAt: unsubscribed ? new Date() : null },
-  });
+  await setUnsubscribed(personId, ctx.workspaceId, unsubscribed, ctx.userId);
 
   revalidatePath(`/contacts/${personId}`);
   revalidatePath(`/lead/${personId}`);

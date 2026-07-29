@@ -3,7 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireWorkspace, personVisibilityFilter, companyVisibilityFilter } from "@/lib/workspace";
-import { deriveRevenueRange, parseEmployeeCountInput, employeeBucketLabel } from "@/lib/firmographics";
+import { parseEmployeeCountInput, employeeBucketLabel } from "@/lib/firmographics";
+import {
+  BULK_COMPANY_FIELDS,
+  BULK_COMPANY_LABELS,
+  BULK_PERSON_FIELDS,
+  BULK_PERSON_LABELS,
+  type BulkCompanyField,
+  type BulkPersonField,
+} from "@/lib/bulk-fields";
 
 // Bulk edit for the firmographic/segmentation fields surfaced in the /companies and /contacts
 // selection bars. Deliberately a small whitelist rather than "any column": these are the
@@ -12,26 +20,6 @@ import { deriveRevenueRange, parseEmployeeCountInput, employeeBucketLabel } from
 //
 // Every write is workspace-scoped and visibility-filtered, and each changed record gets an
 // Activity row so a bulk edit is as auditable as a single one.
-
-export const BULK_COMPANY_FIELDS = ["industry", "country", "revenueRange", "employeeCount"] as const;
-export type BulkCompanyField = (typeof BULK_COMPANY_FIELDS)[number];
-
-export const BULK_COMPANY_LABELS: Record<BulkCompanyField, string> = {
-  industry: "Industry",
-  country: "Country",
-  revenueRange: "Revenue Range",
-  employeeCount: "Employees",
-};
-
-// Person-side: stage is the one segmentation field that's directly editable. seniority and
-// department are derived from jobTitle (lib/job-title.ts) and deliberately excluded — setting
-// them by hand would be silently overwritten the next time the title is edited.
-export const BULK_PERSON_FIELDS = ["stage"] as const;
-export type BulkPersonField = (typeof BULK_PERSON_FIELDS)[number];
-
-export const BULK_PERSON_LABELS: Record<BulkPersonField, string> = {
-  stage: "Stage",
-};
 
 export async function bulkUpdateCompanyField(
   companyIds: string[],

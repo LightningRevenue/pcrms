@@ -34,12 +34,8 @@ import { CompanyLogo } from "@/components/company-logo";
 import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
 import { moveContactStage, bulkMoveUnstagedContacts } from "@/lib/actions/contact-pipeline-stages";
 import { BulkFieldDialog } from "@/components/bulk-field-dialog";
-import {
-  bulkUpdatePersonField,
-  bulkUpdateCompanyForContacts,
-  type BulkPersonField,
-  type BulkCompanyField,
-} from "@/lib/actions/bulk-fields";
+import { bulkUpdatePersonField, bulkUpdateCompanyForContacts } from "@/lib/actions/bulk-fields";
+import type { BulkPersonField, BulkCompanyField } from "@/lib/bulk-fields";
 import { INDUSTRIES, COUNTRIES, REVENUE_RANGES, EMPLOYEE_BUCKETS } from "@/lib/firmographics";
 import { EmailComposer, type ComposerDraft } from "@/components/email-composer";
 import { OwnerSelect } from "@/components/owner-select";

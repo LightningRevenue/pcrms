@@ -5,8 +5,11 @@ import { requireWorkspace, opportunityVisibilityFilter } from "@/lib/workspace";
 import { db } from "@/lib/db";
 import { assertLimit } from "@/lib/entitlements";
 import { sendOwnershipEmail } from "@/lib/ownership-notification";
+import { OPPORTUNITY_FIELD_LABELS } from "@/lib/field-labels";
+import { normalizeValue, normalizeProbability, resolveLostReason } from "@/lib/deal-fields";
 
 export type OpportunityStage = string;
+export type OpportunityField = keyof typeof OPPORTUNITY_FIELD_LABELS;
 
 export type ConvertToOpportunityInput = {
   personId: string;
@@ -204,16 +207,19 @@ export async function getOpportunity(id: string) {
   return { ...o, contact, campaigns: contact?.campaignMembers.map((m) => m.campaign) ?? [] };
 }
 
-export async function moveOpportunityStage(id: string, stage: OpportunityStage) {
+export async function moveOpportunityStage(id: string, stage: OpportunityStage, lostReason?: string) {
   const { userId, workspaceId } = await requireWorkspace();
 
   const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId } });
   if (current.stage === stage) return;
 
   const target = await db.pipelineStage.findUnique({ where: { workspaceId_label: { workspaceId, label: stage } } });
-  const closeDate = !target || target.outcome === "open" ? null : new Date();
+  const isOpen = !target || target.outcome === "open";
+  const closeDate = isOpen ? null : new Date();
 
-  await db.opportunity.update({ where: { id, workspaceId }, data: { stage, closeDate } });
+  const reason = resolveLostReason(target?.outcome, lostReason, current.lostReason);
+
+  await db.opportunity.update({ where: { id, workspaceId }, data: { stage, closeDate, lostReason: reason } });
 
   const activityData = {
     workspaceId,
@@ -282,6 +288,91 @@ export async function setOpportunityOwner(id: string, ownerId: string | null) {
 export async function setExpectedCloseDate(id: string, date: Date | null) {
   const { workspaceId } = await requireWorkspace();
   await db.opportunity.update({ where: { id, workspaceId }, data: { expectedCloseDate: date } });
+  revalidatePath("/deals");
+  revalidatePath(`/deals/${id}`);
+}
+
+// Logs to the deal's own timeline plus its contact's and company's, matching moveOpportunityStage
+// — a rep looking at the person should see the deal's amount change without opening the deal.
+async function logOpportunityFieldChange(
+  workspaceId: string,
+  userId: string | undefined,
+  opportunity: { id: string; contactId: string | null; companyId: string | null },
+  field: string,
+  oldValue: string,
+  newValue: string
+) {
+  const data = {
+    workspaceId,
+    kind: "field_update",
+    field,
+    oldValue: oldValue || null,
+    newValue: newValue || null,
+    actorId: userId,
+  };
+  await db.activity.create({ data: { entityType: "opportunity", entityId: opportunity.id, ...data } });
+  if (opportunity.contactId) {
+    await db.activity.create({ data: { entityType: "person", entityId: opportunity.contactId, ...data } });
+  }
+}
+
+export async function updateOpportunityField(id: string, field: OpportunityField, rawValue: string) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const value = rawValue.trim();
+  if (field === "name" && !value) throw new Error("Name is required");
+
+  const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId } });
+  const oldValue = current[field] ?? "";
+  if (oldValue === value) return;
+
+  await db.opportunity.update({ where: { id, workspaceId }, data: { [field]: value || null } });
+  await logOpportunityFieldChange(workspaceId, userId, current, OPPORTUNITY_FIELD_LABELS[field], oldValue, value);
+
+  revalidatePath("/deals");
+  revalidatePath(`/deals/${id}`);
+}
+
+export async function setOpportunityValue(id: string, value: number) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const amount = normalizeValue(value);
+  const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId } });
+  if (current.value === amount) return;
+
+  await db.opportunity.update({ where: { id, workspaceId }, data: { value: amount } });
+  await logOpportunityFieldChange(
+    workspaceId,
+    userId,
+    current,
+    "Amount",
+    String(current.value),
+    String(amount)
+  );
+
+  revalidatePath("/deals");
+  revalidatePath(`/deals/${id}`);
+}
+
+// Null clears the override so the deal falls back to its stage's probability.
+export async function setOpportunityProbability(id: string, probability: number | null) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const clamped = normalizeProbability(probability);
+
+  const current = await db.opportunity.findUniqueOrThrow({ where: { id, workspaceId } });
+  if (current.probability === clamped) return;
+
+  await db.opportunity.update({ where: { id, workspaceId }, data: { probability: clamped } });
+  await logOpportunityFieldChange(
+    workspaceId,
+    userId,
+    current,
+    "Probability",
+    current.probability === null ? "" : `${current.probability}%`,
+    clamped === null ? "" : `${clamped}%`
+  );
+
   revalidatePath("/deals");
   revalidatePath(`/deals/${id}`);
 }

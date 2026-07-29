@@ -1,22 +1,44 @@
 "use client";
 
-import Link from "next/link";
-import type { List, PipelineStage } from "@prisma/client";
-import { DollarSign, Milestone, CalendarDays, Building2, User, UserCircle, ArrowUpRight } from "lucide-react";
+import type { PipelineStage } from "@prisma/client";
+import {
+  DollarSign,
+  Milestone,
+  CalendarDays,
+  Building2,
+  User,
+  UserCircle,
+  Percent,
+  Coins,
+  Compass,
+  Footprints,
+  ThumbsDown,
+} from "lucide-react";
 import { FieldSection } from "@/components/field-section";
 import { FieldRow } from "@/components/field-row";
-import { EntityListsSection } from "@/components/entity-lists-section";
+import { EditableFieldRow } from "@/components/editable-field-row";
+import { CustomFieldsSection } from "@/components/custom-fields-section";
 import { OwnerSelect } from "@/components/owner-select";
 import { UnsubscribeToggle } from "@/components/unsubscribe-toggle";
-import { setOpportunityOwner, setExpectedCloseDate } from "@/lib/actions/opportunities";
+import {
+  setOpportunityOwner,
+  setExpectedCloseDate,
+  setOpportunityValue,
+  setOpportunityProbability,
+  updateOpportunityField,
+} from "@/lib/actions/opportunities";
 import type { OpportunityRow, OpportunityStage } from "@/components/opportunities-view";
-import { useContactHref } from "@/lib/view-mode";
+import type { CustomFieldType } from "@/lib/actions/custom-fields";
+import { CURRENCIES, formatMoney } from "@/lib/currency";
 
 type WorkspaceUser = { id: string; name: string | null; email: string | null };
-
-function initials(name: string) {
-  return name.split(" ").map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-}
+type CustomFieldValue = {
+  id: string;
+  label: string;
+  type: CustomFieldType;
+  options: string[];
+  value: string;
+};
 
 function contactName(contact: OpportunityRow["contact"]) {
   if (!contact) return "";
@@ -44,20 +66,19 @@ export function OpportunityDetailPanel({
   opportunity,
   stages,
   onStageChange,
-  lists,
   users,
+  customFields,
 }: {
   opportunity: OpportunityRow;
   stages: PipelineStage[];
   onStageChange: (stage: OpportunityStage) => void;
-  lists: List[];
   users: WorkspaceUser[];
+  customFields: CustomFieldValue[];
 }) {
   const currentStage = stages.find((s) => s.label === opportunity.stage);
   const contact = contactName(opportunity.contact);
   const createdBy = opportunity.createdBy?.name ?? opportunity.createdBy?.email ?? "—";
   const createdAt = relativeTime(opportunity.createdAt);
-  const contactHref = useContactHref();
 
   function changeOwner(ownerId: string | null) {
     setOpportunityOwner(opportunity.id, ownerId);
@@ -70,20 +91,27 @@ export function OpportunityDetailPanel({
   const isOpen = currentStage?.outcome === "open";
 
   return (
-    <aside className="w-80 shrink-0 border-r border-border h-[calc(100vh-3.5rem-2.75rem)] overflow-y-auto px-5 py-6">
-      <div className="size-14 rounded-lg bg-muted border border-border flex items-center justify-center text-[18px] font-medium text-subtle">
-        {opportunity.name ? opportunity.name[0].toUpperCase() : "-"}
-      </div>
-      <h1 className="text-[17px] font-medium mt-3">{opportunity.name || "Untitled"}</h1>
-      <p className="text-[12px] text-subtle mt-0.5">Added {createdAt}</p>
-
-      <div className="mt-6 border-t border-border">
-        <p className="text-[12px] font-medium text-subtle uppercase tracking-wide pt-4 px-1">
-          Fields
-        </p>
-
+    <aside className="w-80 shrink-0 border-r border-border h-full overflow-y-auto px-5 py-6">
+      {/* Name/avatar live in the highlights bar now, so the panel opens straight on the fields.
+          -mt-2 cancels FieldSection's own py-2 so "Deal" sits level with "Company" on the right. */}
+      <div className="-mt-2">
         <FieldSection title="Deal">
-          <FieldRow icon={DollarSign} label="Amount" value={`$${opportunity.value.toLocaleString()}`} />
+          <EditableFieldRow
+            icon={DollarSign}
+            label="Amount"
+            type="number"
+            value={String(opportunity.value)}
+            placeholder={formatMoney(0, opportunity.currency)}
+            onSave={async (v) => setOpportunityValue(opportunity.id, Number(v))}
+          />
+          <EditableFieldRow
+            icon={Coins}
+            label="Currency"
+            type="select"
+            value={opportunity.currency}
+            options={[...CURRENCIES]}
+            onSave={async (v) => updateOpportunityField(opportunity.id, "currency", v || "USD")}
+          />
           <div className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted transition-colors">
             <div className="flex items-center gap-2 w-28 shrink-0 text-[13px] text-subtle">
               <Milestone size={14} strokeWidth={1.75} />
@@ -124,6 +152,42 @@ export function OpportunityDetailPanel({
               />
             </div>
           )}
+          {/* Empty = inherit the stage's probability, so the placeholder shows what you'd get. */}
+          <EditableFieldRow
+            icon={Percent}
+            label="Probability"
+            type="number"
+            value={opportunity.probability === null ? "" : String(opportunity.probability)}
+            placeholder={
+              currentStage?.probability === null || currentStage?.probability === undefined
+                ? "Not set"
+                : `${currentStage.probability}% (stage)`
+            }
+            onSave={async (v) => setOpportunityProbability(opportunity.id, v === "" ? null : Number(v))}
+          />
+          <EditableFieldRow
+            icon={Compass}
+            label="Source"
+            value={opportunity.source ?? ""}
+            placeholder="Where it came from"
+            onSave={async (v) => updateOpportunityField(opportunity.id, "source", v)}
+          />
+          <EditableFieldRow
+            icon={Footprints}
+            label="Next step"
+            value={opportunity.nextStepNote ?? ""}
+            placeholder="What's the next move?"
+            onSave={async (v) => updateOpportunityField(opportunity.id, "nextStepNote", v)}
+          />
+          {currentStage?.outcome === "lost" && (
+            <EditableFieldRow
+              icon={ThumbsDown}
+              label="Lost reason"
+              value={opportunity.lostReason ?? ""}
+              placeholder="Why was it lost?"
+              onSave={async (v) => updateOpportunityField(opportunity.id, "lostReason", v)}
+            />
+          )}
         </FieldSection>
 
         <FieldSection title="Relations">
@@ -141,60 +205,13 @@ export function OpportunityDetailPanel({
           )}
         </FieldSection>
 
+        <CustomFieldsSection objectType="opportunity" recordId={opportunity.id} fields={customFields} />
+
         <FieldSection title="System">
           <FieldRow icon={CalendarDays} label="Creation date" value={createdAt} />
           <FieldRow icon={UserCircle} label="Created by" value={createdBy} />
         </FieldSection>
       </div>
-
-      <div className="mt-2 border-t border-border pt-4 space-y-4">
-        {opportunity.contact && (
-          <RelatedSection title="Point of Contact">
-            <Link
-              href={contactHref(opportunity.contact.id)}
-              className="flex items-center gap-2 text-[13px] group hover:bg-muted rounded-md px-1 py-1 -mx-1 transition-colors"
-            >
-              <Avatar name={contact} />
-              <span className="truncate">{contact}</span>
-              <ArrowUpRight size={12} strokeWidth={1.75} className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-            </Link>
-          </RelatedSection>
-        )}
-
-        {opportunity.company && (
-          <RelatedSection title="Company">
-            <Link
-              href={`/companies/${opportunity.company.id}`}
-              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border bg-muted text-[13px] text-subtle hover:text-foreground hover:border-subtle transition-colors"
-            >
-              <Building2 size={12} strokeWidth={1.75} />
-              {opportunity.company.name || "Untitled"}
-              <ArrowUpRight size={12} strokeWidth={1.75} className="shrink-0" />
-            </Link>
-          </RelatedSection>
-        )}
-
-        <EntityListsSection entityType="opportunity" entityId={opportunity.id} lists={lists} />
-      </div>
     </aside>
-  );
-}
-
-function Avatar({ name }: { name: string }) {
-  return (
-    <div className="size-5 shrink-0 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-medium">
-      {initials(name) || "?"}
-    </div>
-  );
-}
-
-function RelatedSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="px-1">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[13px] font-medium">{title}</span>
-      </div>
-      {children}
-    </div>
   );
 }
