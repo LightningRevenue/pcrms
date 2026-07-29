@@ -68,6 +68,7 @@ model Workspace {
   workflows              Workflow[]
   dashboards             Dashboard[]
   customReports          CustomReport[]
+  savedProspectViews     SavedProspectView[]
   customDashboards       CustomDashboard[]
   emailOpens             EmailOpen[]
   notes                  Note[]
@@ -224,6 +225,7 @@ model User {
   calls                Call[]
   playbooks            Playbook[]
   customReports        CustomReport[]
+  savedProspectViews   SavedProspectView[] @relation("SavedProspectViewCreatedBy")
   customDashboards     CustomDashboard[]
   handledGdprRequests  GdprRequest[]
 }
@@ -1073,6 +1075,29 @@ model CustomReport {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+}
+
+// A named filter preset for the Contacts list. Private to its creator (listSavedViews
+// filters on createdById) but readable by anyone in the workspace holding its ?view=<id>
+// link — see getSavedView in actions/saved-prospect-views.ts for why that read is
+// deliberately not ownership-scoped.
+model SavedProspectView {
+  id      String @id @default(cuid())
+  name    String
+  filters Json // ProspectFilters — see src/lib/prospect-filters.ts
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Required, unlike CustomReport.createdById: ownership decides who sees the view in their
+  // list, so an owner-less row would be invisible in "my views" yet still open by link.
+  createdById String
+  createdBy   User   @relation("SavedProspectViewCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdById])
 }
 
 // A user-composed page of report widgets, each with its own independent entity/filters/

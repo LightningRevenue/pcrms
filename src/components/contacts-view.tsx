@@ -42,6 +42,21 @@ import { OwnerSelect } from "@/components/owner-select";
 import { ContactQuickPreview } from "@/components/contact-quick-preview";
 import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
 import { CampaignFilterPicker } from "@/components/campaign-filter-picker";
+import { ProspectFilterBar, type ProspectFilterOptions } from "@/components/prospect-filter-bar";
+import { SaveViewDialog } from "@/components/save-view-dialog";
+import {
+  createSavedView,
+  updateSavedViewFilters,
+  deleteSavedView,
+  type SavedView,
+} from "@/lib/actions/saved-prospect-views";
+import {
+  matchesProspectFilters,
+  prospectFiltersEqual,
+  hasAnyFilter,
+  type MatchablePerson,
+  type ProspectFilters,
+} from "@/lib/prospect-filters";
 import { useViewMode } from "@/lib/view-mode";
 
 export type PersonRow = Person & {
@@ -49,10 +64,47 @@ export type PersonRow = Person & {
   createdBy: User | null;
   owner: User | null;
   importBatch: ImportBatch | null;
-  campaignMembers: { campaign: { id: string; name: string } }[];
+  campaignMembers: { repliedAt?: Date | null; campaign: { id: string; name: string } }[];
 };
 export type PersonCustomField = { id: string; key: string; label: string };
 export type NoteWithAuthor = Note & { createdBy: User | null };
+
+// Bridges a loaded row to the shape matchesProspectFilters expects. The extra maps come from
+// the Contacts page; without them those filters simply match nothing rather than throwing.
+function toMatchable(
+  p: PersonRow,
+  lastActivityByPerson: Map<string, Activity>,
+  customValuesByPerson?: Map<string, Record<string, string | null>>,
+  contactsPerCompany?: Map<string, number>
+): MatchablePerson {
+  return {
+    id: p.id,
+    firstName: p.firstName,
+    lastName: p.lastName,
+    email: p.email,
+    phone: p.phone,
+    jobTitle: p.jobTitle,
+    seniority: p.seniority,
+    department: p.department,
+    stage: p.stage,
+    ownerId: p.ownerId,
+    createdAt: p.createdAt,
+    unsubscribedAt: p.unsubscribedAt,
+    emailVerifiedStatus: p.emailVerifiedStatus,
+    importBatchId: p.importBatchId,
+    companyId: p.companyId,
+    companyName: p.company?.name ?? null,
+    industry: p.company?.industry ?? null,
+    country: p.company?.country ?? null,
+    revenueRange: p.company?.revenueRange ?? null,
+    employeeCount: p.company?.employeeCount ?? null,
+    campaignIds: p.campaignMembers.map((m) => m.campaign.id),
+    hasCampaignReply: p.campaignMembers.some((m) => m.repliedAt != null),
+    lastActivityAt: lastActivityByPerson.get(p.id)?.createdAt ?? null,
+    customValues: customValuesByPerson?.get(p.id) ?? {},
+    contactsAtCompany: (p.companyId && contactsPerCompany?.get(p.companyId)) || 0,
+  };
+}
 
 const AVATAR_COLORS = [
   "bg-rose-500 text-white",
@@ -213,6 +265,12 @@ export function ContactsView({
   onAddClick,
   users = [],
   stages = [],
+  filterOptions,
+  savedViews = [],
+  initialView = null,
+  currentUserId,
+  customValuesByPerson,
+  contactsPerCompany,
 }: {
   people: PersonRow[];
   lastActivityByPerson: Map<string, Activity>;
@@ -224,6 +282,14 @@ export function ContactsView({
   onAddClick?: () => void;
   users?: WorkspaceUser[];
   stages?: ContactPipelineStage[];
+  // Advanced filtering + saved views are only wired up on /contacts. Other hosts of this
+  // component (e.g. a static List's detail page) omit these and keep the simple pickers.
+  filterOptions?: ProspectFilterOptions;
+  savedViews?: SavedView[];
+  initialView?: SavedView | null;
+  currentUserId?: string;
+  customValuesByPerson?: Map<string, Record<string, string | null>>;
+  contactsPerCompany?: Map<string, number>;
 }) {
   const [people, setPeople] = useState(initialPeople);
   const [view, setView] = useState<"list" | "kanban">("list");
@@ -249,6 +315,64 @@ export function ContactsView({
   });
   const [campaignFilter, setCampaignFilter] = useState<Set<string>>(new Set());
 
+  // --- Advanced filters + saved views (only when filterOptions is supplied) ---
+  const advanced = !!filterOptions;
+  // Seeded once: a ?view=<id> link wins, otherwise fold the ?owner= deep link into the same
+  // shape so the dashboard's "Ownership by agent" links keep working.
+  const [filters, setFilters] = useState<ProspectFilters>(() => {
+    if (initialView) return initialView.filters;
+    const owner = searchParams.get("owner");
+    return owner && owner !== NO_OWNER_KEY ? { ownerIds: [owner] } : {};
+  });
+  const [loadedView, setLoadedView] = useState<SavedView | null>(initialView);
+  const [views, setViews] = useState<SavedView[]>(savedViews);
+  const [savingView, setSavingView] = useState<"create" | null>(null);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+
+  // Unsaved-changes signal for the bottom bar: only when the current filters differ from
+  // whatever view is loaded (an untouched saved view stays quiet).
+  const dirty = advanced && !prospectFiltersEqual(filters, loadedView?.filters ?? {});
+  const ownsLoadedView = !!loadedView && loadedView.createdById === currentUserId;
+
+  const router = useRouter();
+
+  function openView(view: SavedView | null) {
+    setLoadedView(view);
+    setFilters(view?.filters ?? {});
+    setViewMenuOpen(false);
+    // Keep the URL copyable — that link is how a view gets shared with a colleague.
+    router.replace(view ? `/contacts?view=${view.id}` : "/contacts", { scroll: false });
+  }
+
+  function handleSaveView(name: string) {
+    startTransition(async () => {
+      const created = await createSavedView(name, filters);
+      setViews((prev) => [...prev, created]);
+      setLoadedView(created);
+      setSavingView(null);
+      router.replace(`/contacts?view=${created.id}`, { scroll: false });
+    });
+  }
+
+  function handleUpdateView() {
+    if (!loadedView) return;
+    startTransition(async () => {
+      await updateSavedViewFilters(loadedView.id, filters);
+      const next = { ...loadedView, filters };
+      setLoadedView(next);
+      setViews((prev) => prev.map((v) => (v.id === next.id ? next : v)));
+    });
+  }
+
+  function handleDeleteView(view: SavedView) {
+    if (!confirm(`Delete the view "${view.name}"?`)) return;
+    startTransition(async () => {
+      await deleteSavedView(view.id);
+      setViews((prev) => prev.filter((v) => v.id !== view.id));
+      if (loadedView?.id === view.id) openView(null);
+    });
+  }
+
   const campaignOptions = useMemo(() => {
     const byId = new Map<string, { id: string; name: string }>();
     for (const p of people) {
@@ -266,12 +390,24 @@ export function ContactsView({
   }
 
   const filteredPeople = useMemo(() => {
+    // Advanced mode evaluates the full ProspectFilters shape in memory (Contacts loads every
+    // person, so kanban and sort keep working over the whole set). Elsewhere the two simple
+    // pickers still apply.
+    if (advanced) {
+      if (!hasAnyFilter(filters)) return people;
+      return people.filter((p) =>
+        matchesProspectFilters(toMatchable(p, lastActivityByPerson, customValuesByPerson, contactsPerCompany), filters)
+      );
+    }
     return people.filter((p) => {
       if (ownerFilter.size > 0 && !ownerFilter.has(p.ownerId ?? NO_OWNER_KEY)) return false;
       if (campaignFilter.size > 0 && !p.campaignMembers.some((m) => campaignFilter.has(m.campaign.id))) return false;
       return true;
     });
-  }, [people, ownerFilter, campaignFilter]);
+  }, [
+    people, ownerFilter, campaignFilter, advanced, filters,
+    lastActivityByPerson, customValuesByPerson, contactsPerCompany,
+  ]);
 
   const sortedPeople = useMemo(() => {
     if (!sort) return filteredPeople;
@@ -328,15 +464,67 @@ export function ContactsView({
       </div>
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
-        <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
-          <List size={14} strokeWidth={1.75} />
-          All People
-          <span className="text-subtle">
-            · {sortedPeople.length}
-            {(ownerFilter.size > 0 || campaignFilter.size > 0) && ` of ${people.length}`}
-          </span>
-          <ChevronDown size={13} strokeWidth={1.75} />
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => advanced && setViewMenuOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors"
+          >
+            <List size={14} strokeWidth={1.75} />
+            {loadedView?.name ?? "All People"}
+            <span className="text-subtle">
+              · {sortedPeople.length}
+              {sortedPeople.length !== people.length && ` of ${people.length}`}
+            </span>
+            {advanced && <ChevronDown size={13} strokeWidth={1.75} />}
+          </button>
+
+          {viewMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setViewMenuOpen(false)} />
+              <div className="absolute left-0 top-full mt-1 z-30 w-64 py-1 rounded-lg border border-border bg-surface shadow-xl">
+                <button
+                  onClick={() => openView(null)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] text-left hover:bg-muted transition-colors"
+                >
+                  <Users size={13} strokeWidth={1.75} className="text-subtle" />
+                  All People
+                  {!loadedView && <Check size={13} strokeWidth={2} className="ml-auto text-accent" />}
+                </button>
+
+                {views.length > 0 && <div className="my-1 h-px bg-border" />}
+                {views.map((v) => (
+                  <div key={v.id} className="group flex items-center hover:bg-muted transition-colors">
+                    <button
+                      onClick={() => openView(v)}
+                      className="flex-1 min-w-0 flex items-center gap-2 px-3 py-1.5 text-[13px] text-left"
+                    >
+                      <Eye size={13} strokeWidth={1.75} className="text-subtle shrink-0" />
+                      <span className="truncate">{v.name}</span>
+                      {loadedView?.id === v.id && <Check size={13} strokeWidth={2} className="ml-auto shrink-0 text-accent" />}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteView(v)}
+                      className="px-2 py-1.5 text-subtle opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                      title="Delete view"
+                    >
+                      <Trash2 size={12} strokeWidth={1.75} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* A shared link opens someone else's view — it isn't in your list until you save it. */}
+                {loadedView && !views.some((v) => v.id === loadedView.id) && (
+                  <>
+                    <div className="my-1 h-px bg-border" />
+                    <p className="px-3 py-1.5 text-[11.5px] text-subtle">
+                      Shared view — save it to keep it in your list.
+                    </p>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="flex items-center gap-1">
           <button
@@ -360,13 +548,28 @@ export function ContactsView({
 
           <div className="w-px h-4 bg-border mx-1" />
 
-          <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
-          <CampaignFilterPicker campaigns={campaignOptions} selected={campaignFilter} onChange={setCampaignFilter} />
+          {!advanced && (
+            <>
+              <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />
+              <CampaignFilterPicker campaigns={campaignOptions} selected={campaignFilter} onChange={setCampaignFilter} />
+            </>
+          )}
           {view === "list" && (
             <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
           )}
         </div>
       </div>
+
+      {advanced && (
+        <div className="shrink-0 px-6 pb-2.5 border-b border-border">
+          <ProspectFilterBar
+            options={filterOptions}
+            filters={filters}
+            onChange={setFilters}
+            searchPlaceholder="Search name, email, job title, or company…"
+          />
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto">
         {view === "list" ? (
@@ -400,6 +603,51 @@ export function ContactsView({
         <div className="h-9 shrink-0 flex items-center justify-end gap-6 px-6 border-t border-border text-[12px] text-subtle">
           <span>Unique of Emails {sortedPeople.length}</span>
         </div>
+      )}
+
+      {/* Shares the bulk bar's slot, so it yields while rows are selected. */}
+      {dirty && selected.size === 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 px-2 py-1.5 rounded-xl border border-border bg-surface shadow-xl">
+          <span className="text-[13px] px-2 text-subtle">
+            {loadedView ? "Unsaved changes" : "Filtered view"}
+          </span>
+          <div className="w-px h-5 bg-border" />
+          {ownsLoadedView && (
+            <button
+              onClick={handleUpdateView}
+              disabled={pending}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              <Check size={14} strokeWidth={1.75} />
+              Update view
+            </button>
+          )}
+          <button
+            onClick={() => setSavingView("create")}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <Eye size={14} strokeWidth={1.75} />
+            {loadedView ? "Save as new view" : "Save this view"}
+          </button>
+          <div className="w-px h-5 bg-border" />
+          <button
+            onClick={() => setFilters(loadedView?.filters ?? {})}
+            className="p-1.5 rounded-lg text-subtle hover:bg-muted hover:text-foreground transition-colors"
+            title={loadedView ? "Discard changes" : "Clear filters"}
+          >
+            <X size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+
+      {savingView && (
+        <SaveViewDialog
+          defaultName={loadedView ? `${loadedView.name} (copy)` : ""}
+          pending={pending}
+          onSave={handleSaveView}
+          onClose={() => setSavingView(null)}
+        />
       )}
 
       {selected.size > 0 && (

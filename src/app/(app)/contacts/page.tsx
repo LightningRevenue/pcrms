@@ -4,11 +4,18 @@ import { listNextTasksByPerson } from "@/lib/actions/tasks";
 import { listFieldDefinitions } from "@/lib/actions/custom-fields";
 import { listMembers } from "@/lib/actions/members";
 import { listContactPipelineStages } from "@/lib/actions/contact-pipeline-stages";
+import { listProspectFilterOptions } from "@/lib/actions/prospect-search";
+import { listSavedViews, getSavedView } from "@/lib/actions/saved-prospect-views";
 import { requireWorkspace, personVisibilityFilter } from "@/lib/workspace";
 
-export default async function ContactsPage() {
+export default async function ContactsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string; owner?: string }>;
+}) {
   const ctx = await requireWorkspace();
-  const { workspaceId } = ctx;
+  const { workspaceId, userId } = ctx;
+  const { view: viewId } = await searchParams;
 
   const people = await db.person.findMany({
     where: { workspaceId, ...personVisibilityFilter(ctx) },
@@ -18,12 +25,28 @@ export default async function ContactsPage() {
       createdBy: true,
       owner: true,
       importBatch: true,
-      campaignMembers: { include: { campaign: true } },
+      // repliedAt drives the "touched, never replied" retargeting filter.
+      campaignMembers: { include: { campaign: true }, orderBy: { addedAt: "desc" } },
     },
   });
   const personIds = people.map((p) => p.id);
 
-  const [lastActivity, nextTasks, customFields, users, openTasks, notes, stages] = await Promise.all([
+  const [
+    lastActivity,
+    nextTasks,
+    customFields,
+    users,
+    openTasks,
+    notes,
+    stages,
+    filterOptions,
+    savedViews,
+    // A ?view=<id> from a colleague resolves for any workspace member, so an unknown or
+    // foreign id simply means "no view loaded" rather than an error page.
+    initialView,
+    customValues,
+    companyCounts,
+  ] = await Promise.all([
     db.activity.findMany({
       where: {
         workspaceId,
@@ -47,8 +70,34 @@ export default async function ContactsPage() {
       include: { createdBy: true },
     }),
     listContactPipelineStages(),
+    listProspectFilterOptions(),
+    listSavedViews(),
+    viewId ? getSavedView(viewId) : Promise.resolve(null),
+    // CustomFieldValue is EAV keyed by recordId with no relation on Person, so custom-field
+    // values can't ride along on the include above — they need their own query.
+    db.customFieldValue.findMany({
+      where: { workspaceId, recordId: { in: personIds }, definition: { objectType: "person" } },
+      select: { recordId: true, definitionId: true, value: true },
+    }),
+    // Contacts-per-company, for the "at least N contacts at this company" filter.
+    db.person.groupBy({
+      by: ["companyId"],
+      where: { workspaceId, deletedAt: null, companyId: { not: null } },
+      _count: { _all: true },
+    }),
   ]);
   const lastActivityByPerson = new Map(lastActivity.map((a) => [a.entityId, a]));
+
+  const customValuesByPerson = new Map<string, Record<string, string | null>>();
+  for (const v of customValues) {
+    const existing = customValuesByPerson.get(v.recordId);
+    if (existing) existing[v.definitionId] = v.value;
+    else customValuesByPerson.set(v.recordId, { [v.definitionId]: v.value });
+  }
+
+  const contactsPerCompany = new Map(
+    companyCounts.map((c) => [c.companyId as string, c._count._all] as const)
+  );
 
   const tasksByPerson = new Map<string, typeof openTasks>();
   for (const task of openTasks) {
@@ -74,6 +123,12 @@ export default async function ContactsPage() {
       customFields={customFields}
       users={users}
       stages={stages}
+      filterOptions={filterOptions}
+      savedViews={savedViews}
+      initialView={initialView}
+      currentUserId={userId}
+      customValuesByPerson={customValuesByPerson}
+      contactsPerCompany={contactsPerCompany}
     />
   );
 }
