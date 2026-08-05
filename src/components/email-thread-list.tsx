@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Email, EmailOpen, EmailOpportunity, Opportunity } from "@prisma/client";
 import { Reply, Plus, Inbox, RefreshCw, ChevronDown, Eye, User as UserIcon } from "lucide-react";
 import DOMPurify from "isomorphic-dompurify";
 import { EmailComposer, type ComposerDraft, type MailboxOption } from "@/components/email-composer";
 import { AssociatedDeals } from "@/components/associated-deals";
-import { syncContactEmails } from "@/lib/actions/emails";
+import { syncContactEmails, getHistoryBackfillStatus } from "@/lib/actions/emails";
 import { useContactHref } from "@/lib/view-mode";
 
 function formatDate(date: Date) {
@@ -33,6 +34,7 @@ export function EmailThreadList({
   mailboxes,
   context = "contact",
   defaultOpportunityId,
+  historyBackfillStatus = null,
 }: {
   personId: string;
   personName?: string;
@@ -43,6 +45,9 @@ export function EmailThreadList({
   opportunities?: Opportunity[];
   mailboxes: MailboxOption[];
   context?: "contact" | "opportunity";
+  // "pending" | "running" while the prior-conversation backfill is still working through the
+  // workspace's mailboxes. Server-rendered, then polled below until terminal.
+  historyBackfillStatus?: string | null;
   // Composing from a deal's own Emails tab should associate the new email with that deal
   // by default, same as the header bar's "Send Email" button — still editable via the
   // OpportunityMultiSelect if `opportunities` is passed.
@@ -53,6 +58,38 @@ export function EmailThreadList({
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId ?? null);
   const contactHref = useContactHref();
+  const router = useRouter();
+
+  const [backfillStatus, setBackfillStatus] = useState(historyBackfillStatus);
+  const backfilling = backfillStatus === "pending" || backfillStatus === "running";
+
+  // Self-rescheduling poll that stops at a terminal status — same shape as ImportProgressOverlay.
+  // On completion it refreshes the route so the server re-fetches the emails the worker just
+  // wrote; without that the banner would disappear but the list would stay empty until reload.
+  useEffect(() => {
+    if (!backfilling) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    async function poll() {
+      const status = await getHistoryBackfillStatus(personId).catch(() => null);
+      if (cancelled) return;
+
+      if (status === "pending" || status === "running") {
+        timer = setTimeout(poll, 2000);
+        return;
+      }
+      setBackfillStatus(status);
+      router.refresh();
+    }
+
+    timer = setTimeout(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [backfilling, personId, router]);
 
   function handleSync() {
     setSyncMessage(null);
@@ -128,11 +165,28 @@ export function EmailThreadList({
         </div>
       </div>
 
-      {emails.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-subtle">
-          <Inbox size={28} strokeWidth={1.5} />
-          <p className="text-[13px] mt-2">No emails yet.</p>
+      {/* Shown above an existing list too: the backfill may still turn up older threads from
+          mailboxes it hasn't reached yet, so "done loading" shouldn't be implied by any result. */}
+      {backfilling && emails.length > 0 && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-md border border-border text-[13px] text-subtle">
+          <RefreshCw size={14} strokeWidth={1.75} className="animate-spin shrink-0" />
+          Pulling your data…
         </div>
+      )}
+
+      {emails.length === 0 ? (
+        backfilling ? (
+          <div className="flex flex-col items-center justify-center py-16 text-subtle">
+            <RefreshCw size={28} strokeWidth={1.5} className="animate-spin" />
+            <p className="text-[13px] mt-2">Pulling your data…</p>
+            <p className="text-[12px] mt-1">Checking your connected inboxes for earlier conversations.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-subtle">
+            <Inbox size={28} strokeWidth={1.5} />
+            <p className="text-[13px] mt-2">No emails yet.</p>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {emails.map((email) => {

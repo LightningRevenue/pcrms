@@ -160,3 +160,16 @@ export async function syncContactEmails(personId: string) {
   revalidatePath(`/contacts/${personId}`);
   return newCount;
 }
+
+// Polled by the Emails tab while the prior-history backfill runs, so the tab can show a loading
+// state instead of a misleading "No emails yet." Returns null once the row is gone or the
+// backfill never ran.
+export async function getHistoryBackfillStatus(personId: string) {
+  const { workspaceId } = await requireWorkspace();
+
+  const person = await db.person.findFirst({
+    where: { id: personId, workspaceId },
+    select: { historyBackfillStatus: true },
+  });
+  return person?.historyBackfillStatus ?? null;
+}

@@ -17,6 +17,7 @@ export function FilterPicker({
   width = "w-56",
   full = false,
   searchable,
+  align = "right",
 }: {
   label: string;
   options: FilterOption[];
@@ -29,6 +30,8 @@ export function FilterPicker({
   full?: boolean;
   /** Adds a type-to-filter box. Defaults on past ~15 options, where scrolling stops working. */
   searchable?: boolean;
+  /** Which edge the menu hangs from. Left keeps it inside a panel when the trigger sits far left. */
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -81,7 +84,7 @@ export function FilterPicker({
 
       {open && (
         <div
-          className={`absolute right-0 mt-1.5 ${full ? "w-full min-w-[200px]" : width} border border-border rounded-lg bg-surface shadow-lg z-30 py-1 max-h-80 overflow-auto`}
+          className={`absolute ${align === "left" ? "left-0" : "right-0"} mt-1.5 ${full ? "w-full min-w-[200px]" : width} border border-border rounded-lg bg-surface shadow-lg z-30 py-1 max-h-80 overflow-auto`}
         >
           <div className="flex items-center justify-between px-3 py-1.5">
             <p className="text-[11px] font-medium text-subtle uppercase tracking-wide">{label}</p>

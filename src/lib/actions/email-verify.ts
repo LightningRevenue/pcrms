@@ -4,30 +4,16 @@ import { db } from "@/lib/db";
 import { requireWorkspace, requireWorkspaceAdmin, personVisibilityFilter } from "@/lib/workspace";
 import { assertLimit, checkLimit } from "@/lib/entitlements";
 import crypto from "node:crypto";
+import { callVerifyApi as call, statusOf, type EmailVerifyResult } from "@/lib/verify-api";
 
-export type EmailVerifyResult = {
-  valid: boolean;
-  catchAll: boolean;
-  reason: string;
-};
+// EmailVerifyResult is not re-exported here on purpose — a "use server" module may only export
+// async functions, so a type re-export compiles into a broken server action. Import it from
+// "@/lib/verify-api".
 
-function statusOf(data: { valid: boolean; catchAll: boolean }) {
-  if (data.catchAll) return "catch-all";
-  return data.valid ? "valid" : "invalid";
-}
-
+// Re-exported so existing callers (email-guess.ts, verify-email-button.tsx) keep working.
+// The implementation moved to lib/verify-api.ts so workers can import it without "use server".
 export async function callVerifyApi(email: string): Promise<EmailVerifyResult> {
-  const res = await fetch(process.env.SMTP_VERIFY_API_URL!, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.SMTP_VERIFY_API_KEY}`,
-    },
-    body: JSON.stringify({ email }),
-  });
-  if (!res.ok) throw new Error(`Verification service error (${res.status})`);
-  const data = await res.json();
-  return { valid: data.valid, catchAll: data.catchAll, reason: data.reason };
+  return call(email);
 }
 
 export async function verifyPersonEmail(personId: string): Promise<EmailVerifyResult> {

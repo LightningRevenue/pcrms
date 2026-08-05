@@ -207,6 +207,7 @@ model User {
   notifications        Notification[]
   workflows            Workflow[]
   importBatches        ImportBatch[]
+  verifyBatches        VerifyBatch[]
   tasks                Task[]
   ownedOpportunities   Opportunity[]           @relation("OpportunityOwner")
   createdOpportunities Opportunity[]           @relation("OpportunityCreatedBy")
@@ -409,6 +410,12 @@ model Person {
   // Human-readable reason from the verify API (e.g. "Mail server rejected recipient") —
   // shown as a tooltip on the status badge so an admin can see why without re-running the check.
   emailVerifiedReason String?
+
+  // Progress of the one-off prior-conversation backfill kicked off when this contact is created
+  // (see lib/run-history-backfill.ts). "pending" | "running" | "done" | "failed" — null means it
+  // never ran (contact has no email, or predates the feature). The Emails tab reads this to show
+  // "Pulling your history…" instead of a misleading empty state while the worker is still going.
+  historyBackfillStatus String?
 
   // Primary company, shown by default on the person's card/list row. Additional companies
   // (e.g. a consultant working with several clients) go through PersonCompany.
@@ -827,6 +834,62 @@ model ImportBatch {
   people    Person[]
 
   @@index([workspaceId])
+}
+
+// A CSV uploaded to /admin/verify-emails for bulk email verification. Platform-admin tool,
+// scoped to the admin user rather than a workspace — it never reads or writes CRM records,
+// so there's no workspaceId here (unlike ImportBatch).
+model VerifyBatch {
+  id     String @id @default(cuid())
+  name   String
+  status String @default("pending") // "pending" | "processing" | "done" | "failed"
+  // Free-text labels for finding an upload later. Plain String[] rather than the List/ListItem
+  // machinery — those are workspace-scoped and entity-typed, neither of which applies here.
+  tags   String[] @default([])
+
+  emailColumn String // which CSV header held the addresses
+  // The uploaded file verbatim, so any past batch can be re-downloaded or re-run as-is.
+  // ponytail: CSV in a TEXT column, not S3. Fine to a few MB; move to S3 (db-backup.ts has
+  // the client + encrypted-settings pattern) if uploads outgrow the row.
+  sourceCsv String
+
+  totalRows  Int @default(0)
+  checkedRows Int @default(0) // drives the progress bar; incremented as the worker goes
+  validRows    Int @default(0)
+  invalidRows  Int @default(0)
+  catchAllRows Int @default(0)
+
+  error     String?
+  createdAt DateTime @default(now())
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  results VerifyResult[]
+
+  @@index([createdById])
+}
+
+// One row per address in the batch, so a filtered download ("valid only" vs "valid +
+// catch-all") is a query rather than a re-parse of sourceCsv.
+model VerifyResult {
+  id String @id @default(cuid())
+  // 0-based position in the uploaded CSV's data rows (header excluded). Identity for a result
+  // is the row, not the address — the same address can legitimately appear on several rows.
+  rowIndex Int
+  email    String // "" when the source cell was blank
+  status   String // "valid" | "invalid" | "catch-all" — same values as Person.emailVerifiedStatus
+  reason   String?
+  // The full original CSV row, so a download carries every column the upload had, not just
+  // the email. Stored as JSON string[] keyed positionally to VerifyBatch.sourceCsv's header.
+  row Json
+
+  batchId String
+  batch   VerifyBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  // Makes the resume-after-retry path idempotent: a re-run can't duplicate a row it already wrote.
+  @@unique([batchId, rowIndex])
+  @@index([batchId, status])
 }
 
 model Notification {

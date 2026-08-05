@@ -26,11 +26,14 @@ import {
   CalendarClock,
   X,
   Eye,
+  EyeOff,
   Megaphone,
   PencilLine,
 } from "lucide-react";
 import { CreateContactPanel } from "@/components/create-contact-panel";
 import { CompanyLogo } from "@/components/company-logo";
+import { PaginationBar } from "@/components/pagination-bar";
+import { DEFAULT_PAGE_SIZE } from "@/lib/paging";
 import { deleteContacts, setPersonOwners } from "@/lib/actions/contacts";
 import { moveContactStage, bulkMoveUnstagedContacts } from "@/lib/actions/contact-pipeline-stages";
 import { BulkFieldDialog } from "@/components/bulk-field-dialog";
@@ -58,6 +61,14 @@ import {
   type ProspectFilters,
 } from "@/lib/prospect-filters";
 import { useViewMode } from "@/lib/view-mode";
+import {
+  ColumnHeader,
+  AddColumnButton,
+  useVisibleColumns,
+  useColumnList,
+  DEFAULT_COL_WIDTH,
+  type SortDir,
+} from "@/components/data-table-chrome";
 
 export type PersonRow = Person & {
   company: Company | null;
@@ -126,6 +137,7 @@ function avatarColor(name: string) {
 
 const STANDARD_COLUMNS = [
   { key: "email", label: "Emails", icon: Mail },
+  { key: "owner", label: "Owner", icon: UserCircle },
   { key: "createdBy", label: "Created by", icon: UserCircle },
   { key: "company", label: "Company", icon: Building2 },
   { key: "phone", label: "Phones", icon: Phone },
@@ -142,7 +154,7 @@ type ColumnKey = StandardColumnKey | `custom:${string}`;
 
 const DEFAULT_VISIBLE: ColumnKey[] = STANDARD_COLUMNS.map((c) => c.key);
 const STORAGE_KEY = "contacts:visibleColumns";
-
+const WIDTH_STORAGE_KEY = "contacts:columnWidths";
 function initials(name: string) {
   return name
     .split(" ")
@@ -153,7 +165,16 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-function Avatar({ name }: { name: string }) {
+// `muted` is the dense-table look: a small neutral square that doesn't compete with the row's
+// text. The colored circle stays for panels and kanban cards, where it's the only identifier.
+function Avatar({ name, muted }: { name: string; muted?: boolean }) {
+  if (muted) {
+    return (
+      <div className="size-4 shrink-0 rounded flex items-center justify-center text-[9px] font-medium bg-muted text-subtle border border-border">
+        {(initials(name) || "?")[0]}
+      </div>
+    );
+  }
   return (
     <div className={`size-6 shrink-0 rounded-full flex items-center justify-center text-[10px] font-medium ${avatarColor(name || "?")}`}>
       {initials(name) || "?"}
@@ -176,8 +197,6 @@ function formatDue(date: Date) {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-type SortDir = "asc" | "desc";
-
 // Raw comparable value behind a column's displayed text — dates sort by
 // timestamp, not by their "2h ago" rendering (which would sort alphabetically).
 function sortValue(
@@ -190,6 +209,8 @@ function sortValue(
   switch (key as StandardColumnKey) {
     case "email":
       return p.email ?? null;
+    case "owner":
+      return p.owner?.name ?? p.owner?.email ?? null;
     case "createdBy":
       return p.createdBy?.name ?? p.createdBy?.email ?? null;
     case "company":
@@ -222,36 +243,6 @@ function compareValues(a: number | string | null, b: number | string | null, dir
   if (b === null) return -1;
   const cmp = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
   return dir === "asc" ? cmp : -cmp;
-}
-
-function useVisibleColumns(customFields: PersonCustomField[]) {
-  const allKeys = useMemo<ColumnKey[]>(
-    () => [...STANDARD_COLUMNS.map((c) => c.key), ...customFields.map((f) => `custom:${f.id}` as const)],
-    [customFields]
-  );
-  const [visible, setVisible] = useState<ColumnKey[]>(DEFAULT_VISIBLE);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-    try {
-      const parsed: string[] = JSON.parse(stored);
-      setVisible(parsed.filter((k): k is ColumnKey => allKeys.includes(k as ColumnKey)));
-    } catch {
-      // ignore malformed storage
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function toggle(key: ColumnKey) {
-    setVisible((prev) => {
-      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
-
-  return { visible, toggle, allKeys };
 }
 
 export function ContactsView({
@@ -293,7 +284,21 @@ export function ContactsView({
 }) {
   const [people, setPeople] = useState(initialPeople);
   const [view, setView] = useState<"list" | "kanban">("list");
-  const { visible: visibleColumns, toggle: toggleColumn } = useVisibleColumns(customFields);
+  const {
+    visible: visibleColumns,
+    toggle: toggleColumn,
+    reorder: reorderColumn,
+    widths: columnWidths,
+    setWidth: setColumnWidth,
+  } = useVisibleColumns<ColumnKey>(
+    STORAGE_KEY,
+    WIDTH_STORAGE_KEY,
+    DEFAULT_VISIBLE,
+    useMemo(
+      () => [...STANDARD_COLUMNS.map((c) => c.key), ...customFields.map((f) => `custom:${f.id}` as const)],
+      [customFields]
+    ) as ColumnKey[]
+  );
   const viewMode = useViewMode();
   const linkBase = viewMode === "advanced" ? "/lead" : "/contacts";
   const [creating, setCreating] = useState(false);
@@ -381,8 +386,10 @@ export function ContactsView({
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [people]);
 
-  function handleSort(key: ColumnKey) {
+  // `dir` set = the header menu picked a direction outright; otherwise cycle asc → desc → off.
+  function handleSort(key: ColumnKey, dir?: SortDir) {
     setSort((prev) => {
+      if (dir) return { key, dir };
       if (!prev || prev.key !== key) return { key, dir: "asc" };
       if (prev.dir === "asc") return { key, dir: "desc" };
       return null;
@@ -415,6 +422,18 @@ export function ContactsView({
     withValue.sort((a, b) => compareValues(a.v, b.v, sort.dir));
     return withValue.map((x) => x.p);
   }, [filteredPeople, sort, lastActivityByPerson, nextTaskByPerson]);
+
+  // Paging is client-side here on purpose: filters, sort and kanban all evaluate over the whole
+  // set in memory, so slicing the query instead would filter within a page and give wrong results.
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState<number>(DEFAULT_PAGE_SIZE);
+  const pageCount = Math.max(1, Math.ceil(sortedPeople.length / perPage));
+  // Filters shrinking the set can strand us past the last page.
+  const safePage = Math.min(page, pageCount);
+  const pagedPeople = useMemo(
+    () => sortedPeople.slice((safePage - 1) * perPage, safePage * perPage),
+    [sortedPeople, safePage, perPage]
+  );
 
   function moveContact(id: string, stage: string) {
     setPeople((prev) => prev.map((p) => (p.id === id ? { ...p, stage } : p)));
@@ -554,19 +573,18 @@ export function ContactsView({
               <CampaignFilterPicker campaigns={campaignOptions} selected={campaignFilter} onChange={setCampaignFilter} />
             </>
           )}
-          {view === "list" && (
-            <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
-          )}
+          {/* Column visibility moved into the table header's "+" — see AddColumnButton. */}
         </div>
       </div>
 
       {advanced && (
-        <div className="shrink-0 px-6 pb-2.5 border-b border-border">
+        <div className="shrink-0 px-6 py-2 border-b border-border">
           <ProspectFilterBar
             options={filterOptions}
             filters={filters}
             onChange={setFilters}
             searchPlaceholder="Search name, email, job title, or company…"
+            collapsible
           />
         </div>
       )}
@@ -574,7 +592,7 @@ export function ContactsView({
       <div className="flex-1 min-h-0 overflow-auto">
         {view === "list" ? (
           <ListView
-            people={sortedPeople}
+            people={pagedPeople}
             visibleColumns={visibleColumns}
             customFields={customFields}
             selected={selected}
@@ -583,9 +601,24 @@ export function ContactsView({
             onPreview={setPreviewPerson}
             lastActivityByPerson={lastActivityByPerson}
             nextTaskByPerson={nextTaskByPerson}
+            customValuesByPerson={customValuesByPerson}
             sort={sort}
             onSort={handleSort}
             linkBase={linkBase}
+            onAddRow={() => (onAddClick ? onAddClick() : setCreating(true))}
+            onAddColumn={
+              <AddColumnButton<ColumnKey>
+                standardColumns={STANDARD_COLUMNS}
+                customFields={customFields}
+                visibleColumns={visibleColumns}
+                onToggle={toggleColumn}
+                customizeHref="/settings/data-model/person"
+              />
+            }
+            onHideColumn={toggleColumn}
+            onReorderColumn={reorderColumn}
+            onResizeColumn={setColumnWidth}
+            columnWidths={columnWidths}
           />
         ) : (
           <div className="p-6">
@@ -602,6 +635,17 @@ export function ContactsView({
       {view === "list" && (
         <div className="h-9 shrink-0 flex items-center justify-end gap-6 px-6 border-t border-border text-[12px] text-subtle">
           <span>Unique of Emails {sortedPeople.length}</span>
+          <PaginationBar
+            page={safePage}
+            perPage={perPage}
+            total={sortedPeople.length}
+            label="leads"
+            onPageChange={setPage}
+            onPerPageChange={(n) => {
+              setPerPage(n);
+              setPage(1);
+            }}
+          />
         </div>
       )}
 
@@ -800,89 +844,21 @@ export function ContactsView({
   );
 }
 
-function PropertyPicker({
-  customFields,
-  visibleColumns,
-  onToggle,
-}: {
-  customFields: PersonCustomField[];
-  visibleColumns: ColumnKey[];
-  onToggle: (key: ColumnKey) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors"
-      >
-        <OptionsIcon size={14} strokeWidth={1.75} />
-        Options
-      </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-1.5 w-56 border border-border rounded-lg bg-surface shadow-lg z-20 py-1 max-h-96 overflow-auto">
-            <p className="px-3 py-1.5 text-[11px] font-medium text-subtle uppercase tracking-wide">
-              Properties
-            </p>
-            {STANDARD_COLUMNS.map((col) => {
-              const checked = visibleColumns.includes(col.key);
-              return (
-                <button
-                  key={col.key}
-                  onClick={() => onToggle(col.key)}
-                  className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <col.icon size={13} strokeWidth={1.75} className="text-subtle" />
-                    {col.label}
-                  </span>
-                  {checked && <Check size={14} strokeWidth={2} />}
-                </button>
-              );
-            })}
-            {customFields.length > 0 && (
-              <>
-                <p className="px-3 pt-2 pb-1.5 text-[11px] font-medium text-subtle uppercase tracking-wide border-t border-border mt-1">
-                  Custom fields
-                </p>
-                {customFields.map((f) => {
-                  const key: ColumnKey = `custom:${f.id}`;
-                  const checked = visibleColumns.includes(key);
-                  return (
-                    <button
-                      key={f.id}
-                      onClick={() => onToggle(key)}
-                      className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors"
-                    >
-                      <span className="truncate">{f.label}</span>
-                      {checked && <Check size={14} strokeWidth={2} className="shrink-0" />}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function cellValue(
   p: PersonRow,
   key: ColumnKey,
   lastActivityByPerson: Map<string, Activity>,
-  nextTaskByPerson: Map<string, Task>
+  nextTaskByPerson: Map<string, Task>,
+  customValuesByPerson?: Map<string, Record<string, string | null>>
 ): string {
-  if (key.startsWith("custom:")) return "";
+  if (key.startsWith("custom:")) {
+    return customValuesByPerson?.get(p.id)?.[key.slice("custom:".length)] ?? "";
+  }
   switch (key as StandardColumnKey) {
     case "email":
       return p.email ?? "";
+    case "owner":
+      return p.owner?.name ?? p.owner?.email ?? "";
     case "createdBy":
       return p.createdBy?.name ?? p.createdBy?.email ?? "";
     case "company":
@@ -919,9 +895,16 @@ function ListView({
   onPreview,
   lastActivityByPerson,
   nextTaskByPerson,
+  customValuesByPerson,
   sort,
   onSort,
   linkBase = "/contacts",
+  onAddRow,
+  onAddColumn,
+  onHideColumn,
+  onReorderColumn,
+  onResizeColumn,
+  columnWidths,
 }: {
   people: PersonRow[];
   visibleColumns: ColumnKey[];
@@ -932,23 +915,26 @@ function ListView({
   onPreview: (person: PersonRow) => void;
   lastActivityByPerson: Map<string, Activity>;
   nextTaskByPerson: Map<string, Task>;
+  customValuesByPerson?: Map<string, Record<string, string | null>>;
   sort: { key: ColumnKey; dir: SortDir } | null;
-  onSort: (key: ColumnKey) => void;
+  onSort: (key: ColumnKey, dir?: SortDir) => void;
   linkBase?: string;
+  onAddRow?: () => void;
+  /** Rendered in the header's trailing cell — the "+" that adds a column. */
+  onAddColumn?: React.ReactNode;
+  onHideColumn?: (key: ColumnKey) => void;
+  onReorderColumn?: (key: ColumnKey, before: ColumnKey) => void;
+  onResizeColumn?: (key: ColumnKey, px: number) => void;
+  columnWidths?: Record<string, number>;
 }) {
-  const cols = useMemo(() => {
-    const standard = STANDARD_COLUMNS.filter((c) => visibleColumns.includes(c.key)).map((c) => ({
-      key: c.key as ColumnKey,
-      label: c.label,
-      icon: c.icon,
-    }));
-    const custom = customFields
-      .filter((f) => visibleColumns.includes(`custom:${f.id}`))
-      .map((f) => ({ key: `custom:${f.id}` as ColumnKey, label: f.label, icon: OptionsIcon }));
-    return [...standard, ...custom];
-  }, [visibleColumns, customFields]);
+  const [dragKey, setDragKey] = useState<ColumnKey | null>(null);
+  const cols = useColumnList<ColumnKey>(visibleColumns, STANDARD_COLUMNS, customFields);
 
-  const gridTemplate = `28px 28px 220px ${cols.map(() => "180px").join(" ")}`;
+  // Trailing column holds the "+" and absorbs leftover width, so the last real column keeps its
+  // own edge instead of stretching across the viewport.
+  const gridTemplate = `28px 24px 200px ${cols
+    .map((c) => `${columnWidths?.[c.key] ?? DEFAULT_COL_WIDTH}px`)
+    .join(" ")} minmax(36px, 1fr)`;
   const allSelected = people.length > 0 && people.every((p) => selected.has(p.id));
 
   function toggleAll() {
@@ -965,34 +951,33 @@ function ListView({
   return (
     <div className="min-w-max">
       <div
-        className="grid px-6 py-2 text-[12px] text-subtle border-b border-border sticky top-0 bg-background z-10"
+        className="grid pl-4 text-[12px] text-subtle border-b border-border sticky top-0 bg-background z-10"
         style={{ gridTemplateColumns: gridTemplate }}
       >
-        <input type="checkbox" className="size-3.5 rounded-sm accent-accent" checked={allSelected} onChange={toggleAll} />
+        <span className="flex items-center h-8">
+          <input type="checkbox" className="size-3.5 rounded-sm accent-accent" checked={allSelected} onChange={toggleAll} />
+        </span>
         <span />
-        <span className="flex items-center gap-1.5 pl-1">
+        <span className="flex items-center gap-1.5 h-8 px-2 border-l border-border">
           <UserCircle size={13} strokeWidth={1.75} />
           Name
         </span>
-        {cols.map((c) => {
-          const active = sort?.key === c.key;
-          return (
-            <button
-              key={c.key}
-              onClick={() => onSort(c.key)}
-              className="flex items-center gap-1.5 pl-1 truncate text-left hover:text-foreground transition-colors"
-            >
-              <c.icon size={13} strokeWidth={1.75} />
-              <span className="truncate">{c.label}</span>
-              {active &&
-                (sort!.dir === "asc" ? (
-                  <ChevronUp size={12} strokeWidth={2} className="shrink-0" />
-                ) : (
-                  <ChevronDown size={12} strokeWidth={2} className="shrink-0" />
-                ))}
-            </button>
-          );
-        })}
+        {cols.map((c) => (
+          <ColumnHeader<ColumnKey>
+            key={c.key}
+            column={c}
+            sort={sort}
+            onSort={onSort}
+            onHide={onHideColumn}
+            onDropBefore={onReorderColumn}
+            onResize={onResizeColumn}
+            dragging={dragKey}
+            onDragKeyChange={setDragKey}
+          />
+        ))}
+        <span className="flex items-center h-8 px-1.5 border-l border-border">
+          {onAddColumn}
+        </span>
       </div>
       <div className="divide-y divide-border">
         {people.map((p) => {
@@ -1000,70 +985,97 @@ function ListView({
           return (
             <div
               key={p.id}
-              className="grid px-6 py-2 items-center hover:bg-muted/40 transition-colors"
+              className="grid pl-4 items-stretch hover:bg-muted/40 transition-colors group/row"
               style={{ gridTemplateColumns: gridTemplate }}
             >
-              <input
-                type="checkbox"
-                className="size-3.5 rounded-sm accent-accent"
-                checked={selected.has(p.id)}
-                onChange={() => toggleOne(p.id)}
-              />
+              <span className="flex items-center h-[33px]">
+                <input
+                  type="checkbox"
+                  className="size-3.5 rounded-sm accent-accent"
+                  checked={selected.has(p.id)}
+                  onChange={() => toggleOne(p.id)}
+                />
+              </span>
               <button
                 onClick={() => onPreview(p)}
                 title="Quick preview"
-                className="p-1 rounded-md text-subtle hover:bg-muted hover:text-foreground transition-colors"
+                className="flex items-center justify-center text-subtle opacity-0 group-hover/row:opacity-100 hover:text-foreground transition-all"
               >
                 <Eye size={13} strokeWidth={1.75} />
               </button>
-              <Link href={`${linkBase}/${p.id}`} className="flex items-center gap-2 min-w-0 pl-1 group">
+              <Link
+                href={`${linkBase}/${p.id}`}
+                className="flex items-center gap-2 min-w-0 h-[33px] px-2 border-l border-border group"
+              >
                 {p.company?.domain ? (
-                  <CompanyLogo domain={p.company.domain} fallbackText={initials(name) || "?"} size={24} rounded="rounded-full" className="text-[10px]" />
+                  <CompanyLogo
+                    domain={p.company.domain}
+                    fallbackText={(initials(name) || "?")[0]}
+                    size={16}
+                    rounded="rounded-full"
+                    className="text-[9px]"
+                  />
                 ) : (
-                  <Avatar name={name} />
+                  <Avatar name={name} muted />
                 )}
-                <p className="text-[13px] leading-tight truncate px-2 py-0.5 rounded-md border border-border bg-muted group-hover:bg-muted/70 group-hover:border-subtle transition-colors">
+                <p className="text-[13px] leading-tight truncate text-foreground group-hover:underline decoration-subtle underline-offset-2">
                   {name}
                 </p>
-                <ArrowUpRight
-                  size={13}
-                  strokeWidth={1.75}
-                  className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                />
               </Link>
               {cols.map((col) => (
-                <span key={col.key} className="text-[13px] text-subtle truncate pl-1 pr-2">
+                <span
+                  key={col.key}
+                  className="flex items-center text-[13px] text-subtle truncate h-[33px] px-2 border-l border-border"
+                >
                   {col.key === "email" && p.email ? (
                     <button
                       onClick={() => onComposeEmail(p)}
                       title="Compose email"
-                      className="inline-block px-2 py-0.5 rounded-md border border-border bg-muted text-foreground text-[12px] truncate max-w-full hover:bg-accent hover:text-white hover:border-accent transition-colors"
+                      className="truncate max-w-full text-left hover:text-accent transition-colors"
                     >
                       {p.email}
                     </button>
-                  ) : col.key === "createdBy" ? (
-                    cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson) && (
-                      <span className="flex items-center gap-1.5">
-                        <Avatar name={cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson)} />
-                        {cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson)}
+                  ) : col.key === "owner" || col.key === "createdBy" ? (
+                    cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson, customValuesByPerson) && (
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Avatar name={cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson, customValuesByPerson)} muted />
+                        <span className="truncate">
+                          {cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson, customValuesByPerson)}
+                        </span>
                       </span>
                     )
                   ) : col.key === "company" && p.company ? (
                     <Link
                       href={`/companies/${p.company.id}`}
-                      className="inline-block px-2 py-0.5 rounded-md border border-border bg-muted text-foreground truncate max-w-full hover:bg-accent hover:text-white hover:border-accent transition-colors"
+                      className="flex items-center gap-1.5 min-w-0 hover:text-foreground transition-colors"
                     >
-                      {p.company.name || "Untitled"}
+                      <CompanyLogo
+                        domain={p.company.domain}
+                        fallbackText={(p.company.name || "?")[0].toUpperCase()}
+                        size={16}
+                        className="text-[9px]"
+                      />
+                      <span className="truncate">{p.company.name || "Untitled"}</span>
                     </Link>
                   ) : (
-                    cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson) || "—"
+                    cellValue(p, col.key, lastActivityByPerson, nextTaskByPerson, customValuesByPerson) || "—"
                   )}
                 </span>
               ))}
+              <span className="border-l border-border" />
             </div>
           );
         })}
       </div>
+      {onAddRow && (
+        <button
+          onClick={onAddRow}
+          className="w-full flex items-center gap-2 h-[33px] pl-4 text-[13px] text-subtle border-b border-border hover:bg-muted/40 hover:text-foreground transition-colors"
+        >
+          <Plus size={13} strokeWidth={1.75} className="ml-0.5" />
+          Add New
+        </button>
+      )}
     </div>
   );
 }

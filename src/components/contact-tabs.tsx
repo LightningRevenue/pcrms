@@ -76,6 +76,7 @@ export function ContactTabs({
   calls,
   users = [],
   defaultTab,
+  historyBackfillStatus,
 }: {
   events: ActivityEntry[];
   personId: string;
@@ -96,6 +97,9 @@ export function ContactTabs({
   // Which sub-tab to land on with no ?tab= — /lead/[id] opens the merged activity feed,
   // /contacts/[id] keeps its original audit-first behaviour.
   defaultTab?: SubTabKey;
+  // Passed straight to the Emails tab, which shows a loading state while the prior-conversation
+  // backfill is still running (see lib/run-history-backfill.ts).
+  historyBackfillStatus?: string | null;
 }) {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab");
@@ -195,6 +199,7 @@ export function ContactTabs({
             initialExpandedId={initialEmailId}
             opportunities={opportunities}
             mailboxes={mailboxes}
+            historyBackfillStatus={historyBackfillStatus}
           />
         ) : sub === "calls" ? (
           <ContactCallsTab calls={calls} personId={personId} opportunities={opportunities} />

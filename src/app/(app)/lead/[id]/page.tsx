@@ -163,6 +163,7 @@ export default async function LeadDetailPage({
             calls={calls}
             users={users}
             defaultTab="all"
+            historyBackfillStatus={contact.historyBackfillStatus}
           />
         </div>
         <LeadRelationshipsPanel

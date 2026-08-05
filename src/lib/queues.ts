@@ -1,6 +1,8 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { importQueue } from "@/lib/import-queue";
+import { verifyQueue } from "@/lib/verify-queue";
+import { historyBackfillQueue } from "@/lib/history-backfill-queue";
 
 // Central registry of every BullMQ queue in the app, for the /admin/queues dashboard.
 // gmail-reply-sync / imap-mailbox-poll / sequence-step-runner / campaign-step-runner only
@@ -19,6 +21,8 @@ export const QUEUE_NAMES = [
   "sequence-step-runner",
   "campaign-step-runner",
   "csv-import",
+  "email-verify",
+  "history-backfill",
 ] as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[number];
@@ -30,6 +34,8 @@ const registry: Record<string, Queue> =
     "sequence-step-runner": new Queue("sequence-step-runner", { connection }),
     "campaign-step-runner": new Queue("campaign-step-runner", { connection }),
     "csv-import": importQueue,
+    "email-verify": verifyQueue,
+    "history-backfill": historyBackfillQueue,
   };
 
 if (process.env.NODE_ENV !== "production") globalForQueues.adminQueues = registry;

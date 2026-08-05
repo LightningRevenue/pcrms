@@ -52,7 +52,7 @@ export async function getListCompanies(entityIds: string[]) {
   const ctx = await requireWorkspace();
   return db.company.findMany({
     where: { workspaceId: ctx.workspaceId, id: { in: entityIds }, ...companyVisibilityFilter(ctx) },
-    include: { createdBy: true, importBatch: true },
+    include: { createdBy: true, owner: true, importBatch: true },
     orderBy: { createdAt: "desc" },
   });
 }

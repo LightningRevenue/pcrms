@@ -302,3 +302,50 @@ export async function updateCompanyEmployeeCount(companyId: string, rawValue: st
   revalidatePath(`/companies/${companyId}`);
   revalidatePath("/companies");
 }
+
+/** Bulk owner assignment from the /companies list — mirrors setPersonOwners. */
+export async function setCompanyOwners(companyIds: string[], ownerId: string | null) {
+  const { userId, workspaceId } = await requireWorkspace();
+
+  const [next, actor] = await Promise.all([
+    ownerId ? db.user.findUniqueOrThrow({ where: { id: ownerId } }) : Promise.resolve(null),
+    db.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+  ]);
+  const newValue = next?.name ?? next?.email ?? "";
+
+  const current = await db.company.findMany({
+    where: { workspaceId, id: { in: companyIds } },
+    include: { owner: true },
+  });
+
+  for (const company of current) {
+    const oldValue = company.owner?.name ?? company.owner?.email ?? "";
+    if (oldValue === newValue) continue;
+
+    await db.company.update({ where: { id: company.id }, data: { ownerId } });
+    await db.activity.create({
+      data: {
+        workspaceId,
+        entityType: "company",
+        entityId: company.id,
+        field: "Owner",
+        oldValue: oldValue || null,
+        newValue: newValue || null,
+        actorId: userId,
+      },
+    });
+
+    if (next?.email && next.id !== userId) {
+      await sendOwnershipEmail({
+        entityKind: "company",
+        recipientEmail: next.email,
+        entityId: company.id,
+        entityName: company.name || "Untitled",
+        assignedByName: actor?.name ?? actor?.email ?? "Someone",
+        workspaceId,
+      });
+    }
+  }
+
+  revalidatePath("/companies");
+}

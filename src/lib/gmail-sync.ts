@@ -9,15 +9,36 @@ function directionFromLabels(labelIds: string[]): "sent" | "received" {
   return labelIds.includes("SENT") ? "sent" : "received";
 }
 
-export async function syncGmailThread(userId: string, gmailThreadId: string, personId: string, workspaceId: string) {
+export async function syncGmailThread(
+  userId: string,
+  gmailThreadId: string,
+  personId: string,
+  workspaceId: string,
+  // Backfilled history is not a new reply: importing an old conversation must not cancel live
+  // sequence steps or raise "New reply from…" for a thread that ended months ago.
+  opts: { silent?: boolean } = {}
+) {
   const messages = await fetchThreadMessages(userId, gmailThreadId);
   const existing = await db.email.findMany({
     where: { workspaceId, gmailThreadId },
-    select: { gmailMessageId: true },
+    select: { gmailMessageId: true, personId: true },
   });
   const existingIds = new Set(existing.map((e) => e.gmailMessageId));
 
   const newMessages = messages.filter((m) => !existingIds.has(m.gmailMessageId));
+
+  // A message imported earlier is skipped above, which used to mean a backfill for a contact
+  // added *after* that import found the thread and linked nothing — the mail was in the DB but
+  // invisible on the contact's Emails tab. Claim any row on this thread that isn't attached to a
+  // contact yet. Rows already linked to someone are left alone, so this can't steal a thread
+  // from the contact it legitimately belongs to.
+  const unlinked = existing.filter((e) => !e.personId).length;
+  if (unlinked > 0) {
+    await db.email.updateMany({
+      where: { workspaceId, gmailThreadId, personId: null },
+      data: { personId },
+    });
+  }
 
   // Reply inheritance: any deal(s) already linked to an earlier email in this thread
   // carry over to every new message on the same thread, so a reply lands on the same deal.
@@ -54,7 +75,7 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
       },
     });
 
-    if (direction === "received") {
+    if (direction === "received" && !opts.silent) {
       await cancelActiveEmailStepsOnReply(personId, workspaceId);
 
       const person = await db.person.findUnique({ where: { id: personId, workspaceId } });
@@ -76,7 +97,9 @@ export async function syncGmailThread(userId: string, gmailThreadId: string, per
     }
   }
 
-  return newMessages.length;
+  // Adopted rows count as found: from the caller's perspective they're mail that just became
+  // visible on this contact, same as a freshly imported one.
+  return newMessages.length + unlinked;
 }
 
 export async function syncPersonEmailThreads(userId: string, personId: string, workspaceId: string) {

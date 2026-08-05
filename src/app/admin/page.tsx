@@ -21,6 +21,12 @@ export default async function AdminPage() {
             Plans
           </Link>
           <Link
+            href="/admin/verify-emails"
+            className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
+          >
+            Verify Emails
+          </Link>
+          <Link
             href="/admin/queues"
             className="px-3 py-1.5 rounded-md border border-border text-[13px] hover:bg-muted transition-colors"
           >

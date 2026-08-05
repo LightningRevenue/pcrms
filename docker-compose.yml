@@ -50,6 +50,22 @@ services:
       DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
       REDIS_URL: redis://redis:6379
 
+  verify-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/verify-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+      SMTP_VERIFY_API_URL: ${SMTP_VERIFY_API_URL}
+      SMTP_VERIFY_API_KEY: ${SMTP_VERIFY_API_KEY}
+
   sequence-worker:
     build:
       context: .
@@ -104,6 +120,26 @@ services:
       # calls decrypt() on it) — campaign sends go out over SMTP, unlike Sequence's Gmail
       # OAuth path, so this worker (unlike sequence-worker) needs it.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+
+  history-backfill-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      args:
+        WORKER_ENTRY: worker/history-backfill-worker.ts
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://crm:crm@postgres:5432/crm
+      REDIS_URL: redis://redis:6379
+      # Backfills a new contact's prior history across both mail stacks, so unlike every other
+      # worker it needs both sets of credentials: ENCRYPTION_KEY to decrypt MailboxAccount IMAP
+      # passwords, and the Google pair to refresh OAuth tokens for connected Gmail accounts.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
 
   trash-purge-worker:
     build:

@@ -33,7 +33,6 @@ import {
   List,
   Sun,
   Moon,
-  Search,
 } from "lucide-react";
 import { WorkspaceSearch } from "@/components/workspace-search";
 import { NotificationBell } from "@/components/notification-bell";
@@ -54,6 +53,25 @@ const ICONS: Record<string, typeof Building2> = {
   dashboards: LayoutGrid,
   workflows: Workflow,
   sequences: GitBranch,
+};
+
+// ponytail: 500-level tones read on both dark and light themes, no per-theme map
+const ICON_COLORS: Record<string, string> = {
+  inbox: "#06b6d4",
+  companies: "#3b82f6",
+  contacts: "#8b5cf6",
+  "lead-intelligence": "#ec4899",
+  deals: "#f43f5e",
+  calendar: "#14b8a6",
+  tasks: "#22c55e",
+  notes: "#10b981",
+  dashboards: "#64748b",
+  workflows: "#f97316",
+  sequences: "#a855f7",
+  "marketing-campaigns": "#f59e0b",
+  "marketing-dashboard": "#64748b",
+  "marketing-inbox-placements": "#14b8a6",
+  lists: "#64748b",
 };
 
 const FAVORITE_ICONS: Record<string, typeof Building2> = {
@@ -123,31 +141,33 @@ function NavLink({
   icon: Icon,
   active,
   collapsed,
+  color,
 }: {
   href: string;
   label: string;
   icon: typeof Home;
   active: boolean;
   collapsed: boolean;
+  color?: string;
 }) {
   return (
     <Link
       href={href}
       title={collapsed ? label : undefined}
-      className={`group relative flex items-center gap-2.5 py-2 rounded-lg text-[13.5px] transition-colors ${
-        collapsed ? "justify-center px-0" : "px-3"
+      className={`flex items-center gap-2 py-[4px] rounded-md text-[13px] font-medium transition-colors ${
+        collapsed ? "justify-center px-0 py-[7px]" : "px-2"
       } ${
         active
-          ? "bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent font-bold"
-          : "text-subtle hover:bg-muted hover:text-foreground font-medium"
+          ? "bg-muted text-foreground"
+          : "text-subtle hover:bg-muted hover:text-foreground"
       }`}
     >
-      <span
-        className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full bg-accent transition-all ${
-          active ? "h-4 opacity-100" : "h-0 opacity-0 group-hover:h-2 group-hover:opacity-40"
-        }`}
+      <Icon
+        size={15}
+        strokeWidth={1.75}
+        className="shrink-0"
+        style={color ? { color } : undefined}
       />
-      <Icon size={16} strokeWidth={active ? 2 : 1.5} className="shrink-0" />
       {!collapsed && <span className="truncate">{label}</span>}
     </Link>
   );
@@ -156,12 +176,11 @@ function NavLink({
 const THEME_KEY = "theme";
 
 function useTheme() {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-
-  useEffect(() => {
-    const stored = localStorage.getItem(THEME_KEY);
-    setTheme(stored === "light" ? "light" : "dark");
-  }, []);
+  const [theme, setTheme] = useState<"dark" | "light">(() =>
+    typeof document !== "undefined" && document.documentElement.hasAttribute("data-theme")
+      ? "light"
+      : "dark"
+  );
 
   function toggle() {
     const next = theme === "light" ? "dark" : "light";
@@ -211,7 +230,7 @@ function SectionHeader({
   return (
     <button
       onClick={onClick}
-      className="group w-full flex items-center gap-1 px-3 pb-1 pt-3 text-[10.5px] font-bold text-subtle uppercase tracking-wider hover:text-foreground transition-colors"
+      className="group w-full flex items-center gap-1 px-3 pb-1 pt-3 text-[11px] font-medium text-subtle hover:text-foreground transition-colors"
     >
       <span>{label}</span>
       <ChevronDown
@@ -329,10 +348,10 @@ export function Sidebar() {
         collapsed ? "w-14" : "w-60"
       }`}
     >
-      <div className={`h-14 flex items-center shrink-0 ${collapsed ? "justify-center px-0" : "justify-between px-3"}`}>
+      <div className={`h-12 flex items-center shrink-0 ${collapsed ? "justify-center px-0 flex-col h-auto py-2 gap-1" : "justify-between px-3"}`}>
         <WorkspaceMenu collapsed={collapsed} />
-        <div className={`flex items-center gap-0.5 shrink-0 ${collapsed ? "flex-col gap-1.5" : ""}`}>
-          {!collapsed && <NotificationBell />}
+        <div className={`flex items-center shrink-0 ${collapsed ? "flex-col gap-1" : "gap-0.5"}`}>
+          <WorkspaceSearch />
           <button
             onClick={() => setCollapsed((c) => !c)}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -348,29 +367,47 @@ export function Sidebar() {
       </div>
 
       {!collapsed ? (
-        <div className="px-3 pt-1 pb-3 space-y-1.5">
-          <button className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-border text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-            <MessageCirclePlus size={15} strokeWidth={1.75} />
+        <div className="px-3 pt-1 pb-2 flex items-center gap-1.5">
+          <Link
+            href="/"
+            title="Home"
+            className={`p-[7px] rounded-lg border border-border transition-colors ${
+              pathname === "/"
+                ? "bg-muted text-foreground"
+                : "text-subtle hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Home size={15} strokeWidth={1.75} />
+          </Link>
+          <span className="rounded-lg border border-border">
+            <NotificationBell />
+          </span>
+          <span className="flex-1" />
+          <button className="flex items-center gap-1.5 px-3 py-[6px] rounded-full border border-border text-[12.5px] font-medium text-subtle hover:bg-muted hover:text-foreground transition-colors">
+            <MessageCirclePlus size={14} strokeWidth={1.75} />
             New chat
           </button>
-          <WorkspaceSearch />
         </div>
       ) : (
-        <div className="px-2 pt-1 pb-2">
-          <button
-            onClick={() => setCollapsed(false)}
-            title="Search (⌘K)"
-            className="w-full flex justify-center py-2 rounded-lg text-subtle hover:bg-muted hover:text-foreground transition-colors"
+        <div className="px-2 pb-1 flex justify-center">
+          <Link
+            href="/"
+            title="Home"
+            className={`p-2 rounded-lg transition-colors ${
+              pathname === "/"
+                ? "bg-muted text-foreground"
+                : "text-subtle hover:bg-muted hover:text-foreground"
+            }`}
           >
-            <Search size={16} strokeWidth={1.75} />
-          </button>
+            <Home size={16} strokeWidth={1.75} />
+          </Link>
         </div>
       )}
 
       {favorites.length > 0 && (
         <div className={collapsed ? "px-2 pt-1" : "px-2 pt-1"}>
           {!collapsed && (
-            <p className="px-1 pb-1 text-[10.5px] font-bold text-subtle uppercase tracking-wider">
+            <p className="px-1 pb-1 text-[11px] font-medium text-subtle">
               Favorites
             </p>
           )}
@@ -383,15 +420,15 @@ export function Sidebar() {
                   <Link
                     href={f.href}
                     title={collapsed ? f.name : undefined}
-                    className={`flex items-center gap-2.5 py-2 rounded-lg text-[13.5px] transition-colors ${
-                      collapsed ? "justify-center px-0" : "px-3"
+                    className={`flex items-center gap-2 py-[4px] rounded-md text-[13px] font-medium transition-colors ${
+                      collapsed ? "justify-center px-0 py-[7px]" : "px-2"
                     } ${
                       active
-                        ? "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-accent font-bold"
-                        : "text-subtle hover:bg-muted hover:text-foreground font-medium"
+                        ? "bg-muted text-foreground"
+                        : "text-subtle hover:bg-muted hover:text-foreground"
                     }`}
                   >
-                    <Icon size={16} strokeWidth={1.5} className="shrink-0" />
+                    <Icon size={15} strokeWidth={1.5} className="shrink-0" />
                     {!collapsed && <span className="flex-1 min-w-0 truncate">{f.name}</span>}
                   </Link>
                   {!collapsed && (
@@ -419,20 +456,13 @@ export function Sidebar() {
         {/* first group has no divider above it */}
         {!(hidden.workspace && !collapsed) && (
           <nav className={`space-y-0.5 ${collapsed ? "px-2 pt-2" : "px-2"}`}>
-            <NavLink
-              href="/"
-              label="Home"
-              icon={Home}
-              active={pathname === "/"}
-              collapsed={collapsed}
-            />
-
             {NAV.map(({ key, href, label }) => (
               <NavLink
                 key={key}
                 href={href}
                 label={label}
                 icon={ICONS[key]}
+                color={ICON_COLORS[key]}
                 active={pathname === href || pathname.startsWith(`${href}/`)}
                 collapsed={collapsed}
               />
@@ -455,6 +485,7 @@ export function Sidebar() {
                     href={href}
                     label={label}
                     icon={ICONS[key]}
+                    color={ICON_COLORS[key]}
                     active={pathname === href || pathname.startsWith(`${href}/`)}
                     collapsed={collapsed}
                   />
@@ -477,6 +508,7 @@ export function Sidebar() {
                 href={href}
                 label={label}
                 icon={icon}
+                color={ICON_COLORS[key]}
                 active={pathname === href || pathname.startsWith(`${href}/`)}
                 collapsed={collapsed}
               />
@@ -485,6 +517,7 @@ export function Sidebar() {
               href="/lists"
               label="Lists"
               icon={List}
+              color={ICON_COLORS.lists}
               active={pathname === "/lists" || pathname.startsWith("/lists/")}
               collapsed={collapsed}
             />

@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import {
   Search,
+  SlidersHorizontal,
   Users,
   Building2,
   Briefcase,
@@ -40,6 +42,8 @@ export type ProspectFilterOptions = {
   customFields: CustomFieldDef[];
 };
 
+const NO_OWNER_ID = "__none__";
+
 const toSet = (v?: string[]) => new Set(v ?? []);
 const fromSet = (s: Set<string>) => (s.size ? [...s] : undefined);
 
@@ -75,13 +79,18 @@ export function ProspectFilterBar({
   onChange,
   showSearch = true,
   searchPlaceholder = "Name, email, job title, or company…",
+  collapsible = false,
 }: {
   options: ProspectFilterOptions;
   filters: ProspectFilters;
   onChange: (next: ProspectFilters) => void;
   showSearch?: boolean;
   searchPlaceholder?: string;
+  // Tucks every picker behind a single "Filters" button. Lead Intelligence wants them all laid
+  // out (filtering *is* the page); Contacts is a table first, so there they'd shout.
+  collapsible?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const patch = (p: Partial<ProspectFilters>) => onChange({ ...filters, ...p });
 
   const engagement = toSet(filters.engagement);
@@ -101,43 +110,37 @@ export function ProspectFilterBar({
   }));
 
   const activeCount = countActiveFilters(filters);
+  // The search box is its own filter, so exclude it from the button's badge — otherwise typing
+  // in a visible input silently bumps a counter on a collapsed panel.
+  const pickerCount = activeCount - (filters.q?.trim() ? 1 : 0);
+  // Inside the panel the triggers sit at its left edge, so a right-anchored menu would hang off it.
+  const pickerAlign = collapsible ? "left" : "right";
 
-  return (
-    <>
-      {showSearch && (
-        <div className="flex items-center gap-2 mt-3">
-          <div className="relative flex-1 max-w-md">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
-            <input
-              value={filters.q ?? ""}
-              onChange={(e) => patch({ q: e.target.value || undefined })}
-              placeholder={searchPlaceholder}
-              className="w-full pl-8 pr-3 py-1.5 text-[12.5px] rounded-md border border-border bg-transparent outline-none focus:border-accent"
-            />
-          </div>
-          {activeCount > 0 && (
-            <button
-              onClick={() => onChange({})}
-              className="flex items-center gap-1 px-2 py-1 text-[12px] text-subtle hover:text-foreground transition-colors"
-            >
-              <X size={12} strokeWidth={2} /> Clear {activeCount}
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-        <FilterPicker label="Seniority" icon={Target} options={options.seniority} selected={toSet(filters.seniority)} onChange={(s) => patch({ seniority: fromSet(s) })} />
-        <FilterPicker label="Department" icon={Layers} options={options.department} selected={toSet(filters.department)} onChange={(s) => patch({ department: fromSet(s) })} />
-        <FilterPicker label="Industry" icon={Briefcase} options={options.industry} selected={toSet(filters.industry)} onChange={(s) => patch({ industry: fromSet(s) })} />
-        <FilterPicker label="Employees" icon={Users} options={options.employeeBuckets} selected={toSet(filters.employeeBuckets)} onChange={(s) => patch({ employeeBuckets: fromSet(s) })} />
-        <FilterPicker label="Revenue" icon={Banknote} options={options.revenueRange} selected={toSet(filters.revenueRange)} onChange={(s) => patch({ revenueRange: fromSet(s) })} />
-        <FilterPicker label="Country" icon={Globe2} options={options.country} selected={toSet(filters.country)} onChange={(s) => patch({ country: fromSet(s) })} />
-        <FilterPicker label="Stage" icon={Building2} options={options.stage} selected={toSet(filters.stage)} onChange={(s) => patch({ stage: fromSet(s) })} emptyText="No contact stages defined yet." />
-        <FilterPicker label="Owner" icon={UserCircle} options={options.owners} selected={toSet(filters.ownerIds)} onChange={(s) => patch({ ownerIds: fromSet(s) })} />
-        <FilterPicker label="Source" icon={Upload} options={options.importBatches} selected={toSet(filters.importBatchIds)} onChange={(s) => patch({ importBatchIds: fromSet(s) })} emptyText="No imports yet." />
-        <FilterPicker label="Campaign" icon={Megaphone} options={options.campaigns} selected={toSet(filters.campaignIds)} onChange={(s) => patch({ campaignIds: fromSet(s) })} emptyText="No campaigns yet." />
+  const pickers = (
+    <div className={collapsible ? "flex flex-wrap items-center gap-1.5" : "flex flex-wrap items-center gap-1.5 mt-2.5"}>
+        <FilterPicker align={pickerAlign} label="Seniority" icon={Target} options={options.seniority} selected={toSet(filters.seniority)} onChange={(s) => patch({ seniority: fromSet(s) })} />
+        <FilterPicker align={pickerAlign} label="Department" icon={Layers} options={options.department} selected={toSet(filters.department)} onChange={(s) => patch({ department: fromSet(s) })} />
+        <FilterPicker align={pickerAlign} label="Industry" icon={Briefcase} options={options.industry} selected={toSet(filters.industry)} onChange={(s) => patch({ industry: fromSet(s) })} />
+        <FilterPicker align={pickerAlign} label="Employees" icon={Users} options={options.employeeBuckets} selected={toSet(filters.employeeBuckets)} onChange={(s) => patch({ employeeBuckets: fromSet(s) })} />
+        <FilterPicker align={pickerAlign} label="Revenue" icon={Banknote} options={options.revenueRange} selected={toSet(filters.revenueRange)} onChange={(s) => patch({ revenueRange: fromSet(s) })} />
+        <FilterPicker align={pickerAlign} label="Country" icon={Globe2} options={options.country} selected={toSet(filters.country)} onChange={(s) => patch({ country: fromSet(s) })} />
+        <FilterPicker align={pickerAlign} label="Stage" icon={Building2} options={options.stage} selected={toSet(filters.stage)} onChange={(s) => patch({ stage: fromSet(s) })} emptyText="No contact stages defined yet." />
         <FilterPicker
+          align={pickerAlign}
+          label="Owner"
+          icon={UserCircle}
+          options={[{ id: NO_OWNER_ID, label: "No Owner" }, ...options.owners]}
+          selected={toSet(filters.noOwner ? [...(filters.ownerIds ?? []), NO_OWNER_ID] : filters.ownerIds)}
+          onChange={(s) => {
+            const noOwner = s.has(NO_OWNER_ID);
+            s.delete(NO_OWNER_ID);
+            patch({ ownerIds: fromSet(s), noOwner: noOwner || undefined });
+          }}
+        />
+        <FilterPicker align={pickerAlign} label="Source" icon={Upload} options={options.importBatches} selected={toSet(filters.importBatchIds)} onChange={(s) => patch({ importBatchIds: fromSet(s) })} emptyText="No imports yet." />
+        <FilterPicker align={pickerAlign} label="Campaign" icon={Megaphone} options={options.campaigns} selected={toSet(filters.campaignIds)} onChange={(s) => patch({ campaignIds: fromSet(s) })} emptyText="No campaigns yet." />
+        <FilterPicker
+          align={pickerAlign}
           label="Engagement"
           icon={MailCheck}
           options={engagementOptions}
@@ -162,6 +165,7 @@ export function ProspectFilterBar({
           .filter((f) => f.type === "SELECT" && f.options.length > 0)
           .map((f) => (
             <FilterPicker
+              align={pickerAlign}
               key={f.id}
               label={f.label}
               options={f.options.map((o) => ({ id: o, label: o }))}
@@ -186,7 +190,77 @@ export function ProspectFilterBar({
           />
           Include unsubscribed
         </label>
+    </div>
+  );
+
+  const search = showSearch && (
+    <div className="relative flex-1 max-w-md">
+      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
+      <input
+        value={filters.q ?? ""}
+        onChange={(e) => patch({ q: e.target.value || undefined })}
+        placeholder={searchPlaceholder}
+        className="w-full pl-8 pr-3 py-1.5 text-[12.5px] rounded-md border border-border bg-transparent outline-none focus:border-accent"
+      />
+    </div>
+  );
+
+  const clearButton = activeCount > 0 && (
+    <button
+      onClick={() => onChange({})}
+      className="flex items-center gap-1 px-2 py-1 text-[12px] text-subtle hover:text-foreground transition-colors"
+    >
+      <X size={12} strokeWidth={2} /> Clear {activeCount}
+    </button>
+  );
+
+  if (collapsible) {
+    return (
+      <div className="flex items-center gap-2">
+        {search}
+        <div className="relative">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12.5px] border transition-colors ${
+              pickerCount > 0
+                ? "border-accent text-foreground"
+                : "border-border text-subtle hover:text-foreground"
+            }`}
+          >
+            <SlidersHorizontal size={13} strokeWidth={1.75} />
+            Filters
+            {pickerCount > 0 && (
+              <span className="px-1.5 rounded-full bg-accent text-white text-[11px] leading-[16px]">
+                {pickerCount}
+              </span>
+            )}
+          </button>
+
+          {open && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+              {/* No overflow/scroll here on purpose: it would become a clipping context and cut
+                  off each picker's own absolutely-positioned dropdown. */}
+              <div className="absolute left-0 top-full mt-1.5 z-30 w-[560px] p-3 rounded-lg border border-border bg-surface shadow-xl">
+                {pickers}
+              </div>
+            </>
+          )}
+        </div>
+        {clearButton}
       </div>
+    );
+  }
+
+  return (
+    <>
+      {showSearch && (
+        <div className="flex items-center gap-2 mt-3">
+          {search}
+          {clearButton}
+        </div>
+      )}
+      {pickers}
     </>
   );
 }

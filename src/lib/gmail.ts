@@ -194,6 +194,35 @@ function parseAddressList(value?: string) {
   return value.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+// Backfill counterpart to fetchThreadMessages: finds threads by *address* rather than by a
+// thread id the CRM already knows. Everything else in gmail-sync only ever refetches threads
+// seeded by mail the CRM itself sent, so this is the only way to reach a conversation that
+// predates the contact being added.
+export async function searchThreadIds(userId: string, address: string, max = 50) {
+  const accessToken = await getValidAccessToken(userId);
+  const query = `{from:${address} to:${address}} -in:chats`;
+
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ q: query, maxResults: String(Math.min(max - ids.length, 100)) });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads?${params}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) throw new Error(`Gmail thread search failed: ${await res.text()}`);
+
+    const data = (await res.json()) as { threads?: Array<{ id: string }>; nextPageToken?: string };
+    ids.push(...(data.threads ?? []).map((t) => t.id));
+    pageToken = data.nextPageToken;
+  } while (pageToken && ids.length < max);
+
+  return ids.slice(0, max);
+}
+
 export async function fetchThreadMessages(userId: string, gmailThreadId: string) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -201,6 +230,9 @@ export async function fetchThreadMessages(userId: string, gmailThreadId: string)
     `https://gmail.googleapis.com/gmail/v1/users/me/threads/${gmailThreadId}?format=full`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
+  // ponytail: thread deleted on Gmail's side (e.g. permanently erased from Trash) — treat as
+  // empty rather than aborting the whole sync run for every other account/person in the batch.
+  if (res.status === 404) return [];
   if (!res.ok) throw new Error(`Failed to fetch Gmail thread: ${await res.text()}`);
 
   const data = await res.json();

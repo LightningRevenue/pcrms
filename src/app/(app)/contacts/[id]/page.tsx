@@ -114,6 +114,7 @@ export default async function ContactDetailPage({
             mailboxes={mailboxes}
             calls={calls}
             users={users}
+            historyBackfillStatus={contact.historyBackfillStatus}
           />
         </div>
       </div>

@@ -1,27 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { PaginationBar } from "@/components/pagination-bar";
 import type { Activity, Company, ImportBatch, User } from "@prisma/client";
 import {
   List,
   Building2,
   ChevronDown,
-  ListFilter,
-  ArrowUpDown,
-  SlidersHorizontal,
   Link2,
   UserCircle,
   CalendarDays,
   MapPin,
   Banknote,
   Plus,
-  ArrowUpRight,
   Trash2,
   History,
-  Check,
   PencilLine,
   X,
+  Users,
+  Globe2,
 } from "lucide-react";
 import { CreateCompanyPanel } from "@/components/create-company-panel";
 import { BulkFieldDialog } from "@/components/bulk-field-dialog";
@@ -29,17 +28,35 @@ import { bulkUpdateCompanyField } from "@/lib/actions/bulk-fields";
 import type { BulkCompanyField } from "@/lib/bulk-fields";
 import { INDUSTRIES, COUNTRIES, REVENUE_RANGES, EMPLOYEE_BUCKETS } from "@/lib/firmographics";
 import { CompanyLogo } from "@/components/company-logo";
-import { deleteCompanies } from "@/lib/actions/companies";
+import { deleteCompanies, setCompanyOwners } from "@/lib/actions/companies";
+import { OwnerSelect } from "@/components/owner-select";
+import { OwnerFilterPicker, NO_OWNER_KEY, type WorkspaceUser } from "@/components/owner-filter-picker";
+import {
+  ColumnHeader,
+  AddColumnButton,
+  useVisibleColumns,
+  useColumnList,
+  DEFAULT_COL_WIDTH,
+  type SortDir,
+} from "@/components/data-table-chrome";
 
-export type CompanyRow = Company & { createdBy: User | null; importBatch: ImportBatch | null };
+export type CompanyRow = Company & {
+  createdBy: User | null;
+  owner: User | null;
+  importBatch: ImportBatch | null;
+};
 export type CompanyCustomField = { id: string; key: string; label: string };
 
 const STANDARD_COLUMNS = [
   { key: "domain", label: "Domain name", icon: Link2 },
+  { key: "owner", label: "Owner", icon: UserCircle },
   { key: "createdBy", label: "Created by", icon: UserCircle },
   { key: "createdAt", label: "Creation date", icon: CalendarDays },
   { key: "linkedin", label: "Linkedin", icon: Link2 },
   { key: "address", label: "Address", icon: MapPin },
+  { key: "industry", label: "Industry", icon: Building2 },
+  { key: "country", label: "Country", icon: Globe2 },
+  { key: "employeeCount", label: "Employees", icon: Users },
   { key: "annualRevenue", label: "Annual Revenue", icon: Banknote },
   { key: "lastActivity", label: "Last activity", icon: History },
 ] as const;
@@ -49,6 +66,21 @@ type ColumnKey = StandardColumnKey | `custom:${string}`;
 
 const DEFAULT_VISIBLE: ColumnKey[] = STANDARD_COLUMNS.map((c) => c.key);
 const STORAGE_KEY = "companies:visibleColumns";
+const WIDTH_STORAGE_KEY = "companies:columnWidths";
+
+// Columns backed by a real Company scalar, so the server can ORDER BY them. Everything else
+// (lastActivity, custom fields) has no column to sort on and stays unsorted rather than
+// silently sorting only the rows this page happens to hold.
+const SERVER_SORTABLE: Partial<Record<StandardColumnKey, string>> = {
+  domain: "domain",
+  createdAt: "createdAt",
+  linkedin: "linkedin",
+  address: "address",
+  industry: "industry",
+  country: "country",
+  employeeCount: "employeeCount",
+  annualRevenue: "annualRevenue",
+};
 
 const AVATAR_COLORS = [
   "bg-rose-500 text-white",
@@ -74,7 +106,16 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-function Avatar({ name }: { name: string }) {
+// `muted` is the dense-table look: a small neutral square that doesn't compete with the row's
+// text — same treatment as the Contacts grid.
+function Avatar({ name, muted }: { name: string; muted?: boolean }) {
+  if (muted) {
+    return (
+      <div className="size-4 shrink-0 rounded flex items-center justify-center text-[9px] font-medium bg-muted text-subtle border border-border">
+        {(initials(name) || "?")[0]}
+      </div>
+    );
+  }
   return (
     <div className={`size-5 shrink-0 rounded-full flex items-center justify-center text-[10px] font-medium ${avatarColor(name || "?")}`}>
       {initials(name) || "?"}
@@ -93,45 +134,20 @@ function relativeTime(date: Date) {
   return `${days}d ago`;
 }
 
-function useVisibleColumns(customFields: CompanyCustomField[]) {
-  const allKeys = useMemo<ColumnKey[]>(
-    () => [...STANDARD_COLUMNS.map((c) => c.key), ...customFields.map((f) => `custom:${f.id}` as const)],
-    [customFields]
-  );
-  const [visible, setVisible] = useState<ColumnKey[]>(DEFAULT_VISIBLE);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-    try {
-      const parsed: string[] = JSON.parse(stored);
-      setVisible(parsed.filter((k): k is ColumnKey => allKeys.includes(k as ColumnKey)));
-    } catch {
-      // ignore malformed storage
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function toggle(key: ColumnKey) {
-    setVisible((prev) => {
-      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
-
-  return { visible, toggle, allKeys };
-}
-
 function cellValue(
   c: CompanyRow,
   key: ColumnKey,
-  lastActivityByCompany: Map<string, Activity>
+  lastActivityByCompany: Map<string, Activity>,
+  customValuesByCompany?: Map<string, Record<string, string | null>>
 ): string {
-  if (key.startsWith("custom:")) return "";
+  if (key.startsWith("custom:")) {
+    return customValuesByCompany?.get(c.id)?.[key.slice("custom:".length)] ?? "";
+  }
   switch (key as StandardColumnKey) {
     case "domain":
       return c.domain ?? "";
+    case "owner":
+      return c.owner?.name ?? c.owner?.email ?? "";
     case "createdBy":
       return c.createdBy?.name ?? c.createdBy?.email ?? "";
     case "createdAt":
@@ -140,6 +156,12 @@ function cellValue(
       return c.linkedin ?? "";
     case "address":
       return c.address ?? "";
+    case "industry":
+      return c.industry ?? "";
+    case "country":
+      return c.country ?? "";
+    case "employeeCount":
+      return c.employeeCount?.toString() ?? "";
     case "annualRevenue":
       return c.annualRevenue ?? "";
     case "lastActivity": {
@@ -149,27 +171,169 @@ function cellValue(
   }
 }
 
+// Client-side comparable, used only by the un-paginated hosts (a List's detail page). /companies
+// sorts in SQL instead — see SERVER_SORTABLE.
+function sortValue(
+  c: CompanyRow,
+  key: ColumnKey,
+  lastActivityByCompany: Map<string, Activity>
+): number | string | null {
+  if (key.startsWith("custom:")) return null;
+  switch (key as StandardColumnKey) {
+    case "createdAt":
+      return c.createdAt.getTime();
+    case "employeeCount":
+      return c.employeeCount ?? null;
+    case "lastActivity": {
+      const a = lastActivityByCompany.get(c.id);
+      return a ? a.createdAt.getTime() : null;
+    }
+    default:
+      return cellValue(c, key, lastActivityByCompany) || null;
+  }
+}
+
+function compareValues(a: number | string | null, b: number | string | null, dir: SortDir): number {
+  // Rows with no value always sink to the bottom, regardless of direction.
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  const cmp = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
+  return dir === "asc" ? cmp : -cmp;
+}
+
 export function CompaniesView({
   companies,
   lastActivityByCompany,
   customFields,
+  customValuesByCompany,
   title = "Companies",
   onAddClick,
+  users = [],
+  paging,
 }: {
   companies: CompanyRow[];
   lastActivityByCompany: Map<string, Activity>;
   customFields: CompanyCustomField[];
+  customValuesByCompany?: Map<string, Record<string, string | null>>;
   title?: string;
   onAddClick?: () => void;
+  users?: WorkspaceUser[];
+  // Only /companies paginates server-side; other hosts (a List's detail page) pass every row
+  // and get client-side sorting plus the old un-paginated footer.
+  paging?: {
+    page: number;
+    perPage: number;
+    total: number;
+    emptyLinkedin: number;
+    withAddress: number;
+    sort: string | null;
+    dir: SortDir;
+  };
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
-  const { visible: visibleColumns, toggle: toggleColumn } = useVisibleColumns(customFields);
-  const emptyLinkedin = companies.filter((c) => !c.linkedin).length;
-  const withAddress = companies.filter((c) => c.address).length;
+  const [changingOwner, setChangingOwner] = useState(false);
+  const {
+    visible: visibleColumns,
+    toggle: toggleColumn,
+    reorder: reorderColumn,
+    widths: columnWidths,
+    setWidth: setColumnWidth,
+  } = useVisibleColumns<ColumnKey>(
+    STORAGE_KEY,
+    WIDTH_STORAGE_KEY,
+    DEFAULT_VISIBLE,
+    useMemo(
+      () => [...STANDARD_COLUMNS.map((c) => c.key), ...customFields.map((f) => `custom:${f.id}` as const)],
+      [customFields]
+    ) as ColumnKey[]
+  );
+
+  // Owner filter only exists on the un-paginated hosts, for the same reason sorting is
+  // server-side on /companies: filtering the loaded page would filter within a page.
+  const [ownerFilter, setOwnerFilter] = useState<Set<string>>(new Set());
+
+  // Server-driven when paginated, local state otherwise.
+  const [localSort, setLocalSort] = useState<{ key: ColumnKey; dir: SortDir } | null>(null);
+  const sort = paging
+    ? paging.sort
+      ? { key: paging.sort as ColumnKey, dir: paging.dir }
+      : null
+    : localSort;
+
+  const total = paging?.total ?? companies.length;
+  const emptyLinkedin = paging?.emptyLinkedin ?? companies.filter((c) => !c.linkedin).length;
+  const withAddress = paging?.withAddress ?? companies.filter((c) => c.address).length;
+
+  function pushParams(mutate: (p: URLSearchParams) => void) {
+    // Selection is by id and the next result set holds different rows, so carrying it across
+    // would let a bulk action hit records no longer on screen.
+    setSelected(new Set());
+    const params = new URLSearchParams(searchParams.toString());
+    mutate(params);
+    router.push(`/companies?${params.toString()}`, { scroll: false });
+  }
+
+  function goTo(page: number, perPage: number) {
+    pushParams((p) => {
+      p.set("page", String(page));
+      p.set("size", String(perPage));
+    });
+  }
+
+  // `dir` set = the header menu picked a direction outright; otherwise cycle asc → desc → off.
+  function handleSort(key: ColumnKey, dir?: SortDir) {
+    if (!paging) {
+      setLocalSort((prev) => {
+        if (dir) return { key, dir };
+        if (!prev || prev.key !== key) return { key, dir: "asc" };
+        if (prev.dir === "asc") return { key, dir: "desc" };
+        return null;
+      });
+      return;
+    }
+
+    // Columns with no SQL equivalent would only sort the current page — leave them alone.
+    if (!SERVER_SORTABLE[key as StandardColumnKey]) return;
+
+    const nextDir: SortDir | null = dir
+      ? dir
+      : sort?.key !== key
+        ? "asc"
+        : sort.dir === "asc"
+          ? "desc"
+          : null;
+
+    pushParams((p) => {
+      if (nextDir) {
+        p.set("sort", key);
+        p.set("dir", nextDir);
+      } else {
+        p.delete("sort");
+        p.delete("dir");
+      }
+      p.set("page", "1"); // a re-sort makes the old offset meaningless
+    });
+  }
+
+  const visibleCompanies = useMemo(() => {
+    let rows = companies;
+    if (!paging && ownerFilter.size > 0) {
+      rows = rows.filter((c) => ownerFilter.has(c.ownerId ?? NO_OWNER_KEY));
+    }
+    if (!paging && localSort) {
+      const withValue = rows.map((c) => ({ c, v: sortValue(c, localSort.key, lastActivityByCompany) }));
+      withValue.sort((a, b) => compareValues(a.v, b.v, localSort.dir));
+      rows = withValue.map((x) => x.c);
+    }
+    return rows;
+  }, [companies, paging, ownerFilter, localSort, lastActivityByCompany]);
 
   function handleDeleteSelected() {
     const ids = Array.from(selected);
@@ -185,6 +349,16 @@ export function CompaniesView({
     });
   }
 
+  function handleChangeOwner(ownerId: string | null) {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      await setCompanyOwners(ids, ownerId);
+      setChangingOwner(false);
+      setSelected(new Set());
+    });
+  }
+
   return (
     <div className="flex flex-col h-screen">
       <div className="h-12 shrink-0 flex items-center justify-between px-6 border-b border-border">
@@ -192,46 +366,61 @@ export function CompaniesView({
           <Building2 size={14} strokeWidth={1.75} className="text-blue-400" />
           <span className="font-medium">{title}</span>
         </div>
-        <button
-          onClick={() => (onAddClick ? onAddClick() : setCreating(true))}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity"
-        >
-          <Plus size={14} strokeWidth={2} />
-          {onAddClick ? "Add Companies" : "New Company"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => (onAddClick ? onAddClick() : setCreating(true))}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] bg-accent text-white hover:opacity-90 transition-opacity"
+          >
+            <Plus size={14} strokeWidth={2} />
+            {onAddClick ? "Add Companies" : "New Company"}
+          </button>
+        </div>
       </div>
 
       <div className="h-11 shrink-0 flex items-center justify-between px-6 border-b border-border">
         <button className="flex items-center gap-1.5 text-[13px] text-subtle hover:text-foreground transition-colors">
           <List size={14} strokeWidth={1.75} />
           All Companies
-          <span className="text-subtle">· {companies.length}</span>
+          <span className="text-subtle">
+            · {visibleCompanies.length === total ? total : `${visibleCompanies.length} of ${total}`}
+          </span>
           <ChevronDown size={13} strokeWidth={1.75} />
         </button>
 
         {/* Selection actions live in the floating bar at the bottom (same as /contacts), so the
             toolbar keeps its own controls instead of swapping them out. */}
         <div className="flex items-center gap-1">
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-            <ListFilter size={14} strokeWidth={1.75} />
-            Filter
-          </button>
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors">
-            <ArrowUpDown size={14} strokeWidth={1.75} />
-            Sort
-          </button>
-          <PropertyPicker customFields={customFields} visibleColumns={visibleColumns} onToggle={toggleColumn} />
+          {!paging && <OwnerFilterPicker users={users} selected={ownerFilter} onChange={setOwnerFilter} />}
+          {/* Column visibility lives in the table header's "+" — see AddColumnButton. */}
         </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
         <ListView
-          companies={companies}
+          companies={visibleCompanies}
           selected={selected}
           onSelectedChange={setSelected}
           visibleColumns={visibleColumns}
           customFields={customFields}
           lastActivityByCompany={lastActivityByCompany}
+          customValuesByCompany={customValuesByCompany}
+          sort={sort}
+          onSort={handleSort}
+          sortableKeys={paging ? SERVER_SORTABLE : null}
+          columnWidths={columnWidths}
+          onHideColumn={toggleColumn}
+          onReorderColumn={reorderColumn}
+          onResizeColumn={setColumnWidth}
+          onAddRow={() => (onAddClick ? onAddClick() : setCreating(true))}
+          onAddColumn={
+            <AddColumnButton<ColumnKey>
+              standardColumns={STANDARD_COLUMNS}
+              customFields={customFields}
+              visibleColumns={visibleColumns}
+              onToggle={toggleColumn}
+              customizeHref="/settings/data-model/company"
+            />
+          }
         />
       </div>
 
@@ -239,18 +428,36 @@ export function CompaniesView({
         <span>
           Empty of Linkedin{" "}
           <strong className="text-foreground">
-            {companies.length ? Math.round((emptyLinkedin / companies.length) * 100) : 0}%
+            {total ? Math.round((emptyLinkedin / total) * 100) : 0}%
           </strong>
         </span>
         <span>
           Not empty of Address <strong className="text-foreground">{withAddress}</strong>
         </span>
+        {paging && (
+          <PaginationBar
+            page={paging.page}
+            perPage={paging.perPage}
+            total={paging.total}
+            label="companies"
+            onPageChange={(p) => goTo(p, paging.perPage)}
+            onPerPageChange={(n) => goTo(1, n)}
+          />
+        )}
       </div>
 
       {selected.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 px-2 py-1.5 rounded-xl border border-border bg-surface shadow-xl">
           <span className="text-[13px] px-2 text-subtle">{selected.size} selected</span>
           <div className="w-px h-5 bg-border" />
+          <button
+            onClick={() => setChangingOwner(true)}
+            disabled={pending}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <UserCircle size={14} strokeWidth={1.75} />
+            Change Owner
+          </button>
           <button
             onClick={() => setBulkEditing(true)}
             disabled={pending}
@@ -308,77 +515,31 @@ export function CompaniesView({
         </div>
       )}
 
-      {creating && <CreateCompanyPanel onClose={() => setCreating(false)} />}
-    </div>
-  );
-}
-
-function PropertyPicker({
-  customFields,
-  visibleColumns,
-  onToggle,
-}: {
-  customFields: CompanyCustomField[];
-  visibleColumns: ColumnKey[];
-  onToggle: (key: ColumnKey) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[13px] text-subtle hover:bg-muted hover:text-foreground transition-colors"
-      >
-        <SlidersHorizontal size={14} strokeWidth={1.75} />
-        Options
-      </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-1.5 w-56 border border-border rounded-lg bg-surface shadow-lg z-20 py-1 max-h-96 overflow-auto">
-            <p className="px-3 py-1.5 text-[11px] font-medium text-subtle uppercase tracking-wide">Properties</p>
-            {STANDARD_COLUMNS.map((col) => {
-              const checked = visibleColumns.includes(col.key);
-              return (
-                <button
-                  key={col.key}
-                  onClick={() => onToggle(col.key)}
-                  className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <col.icon size={13} strokeWidth={1.75} className="text-subtle" />
-                    {col.label}
-                  </span>
-                  {checked && <Check size={14} strokeWidth={2} />}
-                </button>
-              );
-            })}
-            {customFields.length > 0 && (
-              <>
-                <p className="px-3 pt-2 pb-1.5 text-[11px] font-medium text-subtle uppercase tracking-wide border-t border-border mt-1">
-                  Custom fields
-                </p>
-                {customFields.map((f) => {
-                  const key: ColumnKey = `custom:${f.id}`;
-                  const checked = visibleColumns.includes(key);
-                  return (
-                    <button
-                      key={f.id}
-                      onClick={() => onToggle(key)}
-                      className="w-full flex items-center justify-between px-3 py-1.5 text-[13px] hover:bg-muted transition-colors"
-                    >
-                      <span className="truncate">{f.label}</span>
-                      {checked && <Check size={14} strokeWidth={2} className="shrink-0" />}
-                    </button>
-                  );
-                })}
-              </>
-            )}
+      {changingOwner && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40" onClick={() => setChangingOwner(false)}>
+          <div
+            className="w-full max-w-xs rounded-lg border border-border bg-surface shadow-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[13px] font-medium">
+              Change owner for {selected.size} compan{selected.size === 1 ? "y" : "ies"}
+            </p>
+            <div className="mt-3 px-2.5 py-1.5 rounded-md border border-border">
+              <OwnerSelect users={users} ownerId={null} onChange={handleChangeOwner} />
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => setChangingOwner(false)}
+                className="px-3 py-1.5 rounded-md text-[13px] text-subtle hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        </>
+        </div>
       )}
+
+      {creating && <CreateCompanyPanel onClose={() => setCreating(false)} />}
     </div>
   );
 }
@@ -390,6 +551,16 @@ function ListView({
   visibleColumns,
   customFields,
   lastActivityByCompany,
+  customValuesByCompany,
+  sort,
+  onSort,
+  sortableKeys,
+  columnWidths,
+  onHideColumn,
+  onReorderColumn,
+  onResizeColumn,
+  onAddRow,
+  onAddColumn,
 }: {
   companies: CompanyRow[];
   selected: Set<string>;
@@ -397,20 +568,27 @@ function ListView({
   visibleColumns: ColumnKey[];
   customFields: CompanyCustomField[];
   lastActivityByCompany: Map<string, Activity>;
+  customValuesByCompany?: Map<string, Record<string, string | null>>;
+  sort: { key: ColumnKey; dir: SortDir } | null;
+  onSort: (key: ColumnKey, dir?: SortDir) => void;
+  /** Null = every column sorts (client-side host). Otherwise only these keys offer a sort menu. */
+  sortableKeys: Partial<Record<string, string>> | null;
+  columnWidths?: Record<string, number>;
+  onHideColumn?: (key: ColumnKey) => void;
+  onReorderColumn?: (key: ColumnKey, before: ColumnKey) => void;
+  onResizeColumn?: (key: ColumnKey, px: number) => void;
+  onAddRow?: () => void;
+  /** Rendered in the header's trailing cell — the "+" that adds a column. */
+  onAddColumn?: React.ReactNode;
 }) {
-  const cols = useMemo(() => {
-    const standard = STANDARD_COLUMNS.filter((c) => visibleColumns.includes(c.key)).map((c) => ({
-      key: c.key as ColumnKey,
-      label: c.label,
-      icon: c.icon,
-    }));
-    const custom = customFields
-      .filter((f) => visibleColumns.includes(`custom:${f.id}`))
-      .map((f) => ({ key: `custom:${f.id}` as ColumnKey, label: f.label, icon: SlidersHorizontal }));
-    return [...standard, ...custom];
-  }, [visibleColumns, customFields]);
+  const [dragKey, setDragKey] = useState<ColumnKey | null>(null);
+  const cols = useColumnList<ColumnKey>(visibleColumns, STANDARD_COLUMNS, customFields);
 
-  const gridTemplate = `28px 220px ${cols.map(() => "180px").join(" ")}`;
+  // Trailing column holds the "+" and absorbs leftover width, so the last real column keeps its
+  // own edge instead of stretching across the viewport.
+  const gridTemplate = `28px 220px ${cols
+    .map((c) => `${columnWidths?.[c.key] ?? DEFAULT_COL_WIDTH}px`)
+    .join(" ")} minmax(36px, 1fr)`;
   const allSelected = companies.length > 0 && companies.every((c) => selected.has(c.id));
 
   function toggleAll() {
@@ -427,62 +605,95 @@ function ListView({
   return (
     <div className="min-w-max">
       <div
-        className="grid px-6 py-2 text-[12px] text-subtle border-b border-border sticky top-0 bg-background z-10"
+        className="grid pl-4 text-[12px] text-subtle border-b border-border sticky top-0 bg-background z-10"
         style={{ gridTemplateColumns: gridTemplate }}
       >
-        <input type="checkbox" className="size-3.5 rounded-sm accent-accent" checked={allSelected} onChange={toggleAll} />
-        <span className="flex items-center gap-1.5 pl-1">
+        <span className="flex items-center h-8">
+          <input type="checkbox" className="size-3.5 rounded-sm accent-accent" checked={allSelected} onChange={toggleAll} />
+        </span>
+        <span className="flex items-center gap-1.5 h-8 px-2 border-l border-border">
           <Building2 size={13} strokeWidth={1.75} />
           Name
         </span>
-        {cols.map((c) => (
-          <span key={c.key} className="flex items-center gap-1.5 pl-1 truncate">
-            <c.icon size={13} strokeWidth={1.75} />
-            {c.label}
-          </span>
-        ))}
+        {cols.map((c) => {
+          const sortable = !sortableKeys || !!sortableKeys[c.key];
+          return (
+            <ColumnHeader<ColumnKey>
+              key={c.key}
+              column={c}
+              sort={sortable ? sort : null}
+              onSort={sortable ? onSort : () => {}}
+              onHide={onHideColumn}
+              onDropBefore={onReorderColumn}
+              onResize={onResizeColumn}
+              dragging={dragKey}
+              onDragKeyChange={setDragKey}
+            />
+          );
+        })}
+        <span className="flex items-center h-8 px-1.5 border-l border-border">{onAddColumn}</span>
       </div>
       <div className="divide-y divide-border">
         {companies.map((c) => (
           <div
             key={c.id}
-            className="grid px-6 py-2 items-center hover:bg-muted/40 transition-colors"
+            className="grid pl-4 items-stretch hover:bg-muted/40 transition-colors group/row"
             style={{ gridTemplateColumns: gridTemplate }}
           >
-            <input
-              type="checkbox"
-              className="size-3.5 rounded-sm accent-accent"
-              checked={selected.has(c.id)}
-              onChange={() => toggleOne(c.id)}
-            />
-            <Link href={`/companies/${c.id}`} className="flex items-center gap-2 min-w-0 pl-1 group">
-              <CompanyLogo domain={c.domain} fallbackText={c.name ? c.name[0].toUpperCase() : "-"} size={20} className="text-[10px]" />
-              <p className="text-[13px] leading-tight truncate px-2 py-0.5 rounded-md border border-border bg-muted group-hover:bg-muted/70 group-hover:border-subtle transition-colors">
+            <span className="flex items-center h-[33px]">
+              <input
+                type="checkbox"
+                className="size-3.5 rounded-sm accent-accent"
+                checked={selected.has(c.id)}
+                onChange={() => toggleOne(c.id)}
+              />
+            </span>
+            <Link
+              href={`/companies/${c.id}`}
+              className="flex items-center gap-2 min-w-0 h-[33px] px-2 border-l border-border group"
+            >
+              <CompanyLogo
+                domain={c.domain}
+                fallbackText={c.name ? c.name[0].toUpperCase() : "-"}
+                size={16}
+                className="text-[9px]"
+              />
+              <p className="text-[13px] leading-tight truncate text-foreground group-hover:underline decoration-subtle underline-offset-2">
                 {c.name || "Untitled"}
               </p>
-              <ArrowUpRight
-                size={13}
-                strokeWidth={1.75}
-                className="text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-              />
             </Link>
             {cols.map((col) => (
-              <span key={col.key} className="text-[13px] text-subtle truncate pl-1 pr-2">
-                {col.key === "createdBy" ? (
-                  cellValue(c, col.key, lastActivityByCompany) && (
-                    <span className="flex items-center gap-1.5">
-                      <Avatar name={cellValue(c, col.key, lastActivityByCompany)} />
-                      {cellValue(c, col.key, lastActivityByCompany)}
+              <span
+                key={col.key}
+                className="flex items-center text-[13px] text-subtle truncate h-[33px] px-2 border-l border-border"
+              >
+                {col.key === "owner" || col.key === "createdBy" ? (
+                  cellValue(c, col.key, lastActivityByCompany, customValuesByCompany) && (
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Avatar name={cellValue(c, col.key, lastActivityByCompany, customValuesByCompany)} muted />
+                      <span className="truncate">
+                        {cellValue(c, col.key, lastActivityByCompany, customValuesByCompany)}
+                      </span>
                     </span>
                   )
                 ) : (
-                  cellValue(c, col.key, lastActivityByCompany) || "—"
+                  cellValue(c, col.key, lastActivityByCompany, customValuesByCompany) || "—"
                 )}
               </span>
             ))}
+            <span className="border-l border-border" />
           </div>
         ))}
       </div>
+      {onAddRow && (
+        <button
+          onClick={onAddRow}
+          className="w-full flex items-center gap-2 h-[33px] pl-4 text-[13px] text-subtle border-b border-border hover:bg-muted/40 hover:text-foreground transition-colors"
+        >
+          <Plus size={13} strokeWidth={1.75} className="ml-0.5" />
+          Add New
+        </button>
+      )}
     </div>
   );
 }

@@ -47,6 +47,18 @@ function decodeBodyPart(raw: Buffer, encoding?: string): string {
   }
 }
 
+// The routine poll only ever reads INBOX, so everything it sees is inbound. A backfill also walks
+// Sent, so direction is decided by whether the mailbox itself is the sender. The contact is then
+// matched against whichever side *isn't* the mailbox — otherwise backfilled Sent mail, whose
+// From is always the mailbox, would never link to the person it was addressed to.
+export function resolveDirection(mailboxEmail: string, fromAddress: string, toAddresses: string[]) {
+  const isSent = fromAddress.toLowerCase() === mailboxEmail.toLowerCase();
+  return {
+    direction: isSent ? ("sent" as const) : ("received" as const),
+    counterparties: (isSent ? toAddresses : [fromAddress]).filter(Boolean),
+  };
+}
+
 const CRON_JOB_NAME = "imap-mailbox-poll";
 // Only look at recent mail — a mailbox can carry thousands of old messages, and walking the
 // full UID range from imapLastUid=0 on first poll made this crawl for minutes without ever
@@ -57,12 +69,34 @@ const POLL_WINDOW_HOURS = 24;
 async function saveMessage(
   client: ImapFlow,
   account: MailboxAccount,
-  message: FetchMessageObject
+  message: FetchMessageObject,
+  // Backfilled history is not a new reply: it must not cancel live sequence/campaign steps and
+  // must not raise "New reply from…" notifications for conversations that ended months ago.
+  opts: { silent?: boolean } = {}
 ): Promise<{ saved: boolean; account: MailboxAccount }> {
   const exists = await db.email.findUnique({
     where: { mailboxAccountId_imapUid: { mailboxAccountId: account.id, imapUid: message.uid } },
   });
   if (exists) {
+    // Same gap as the Gmail path: a message imported before the contact existed sits in the DB
+    // with no personId, so the contact's Emails tab never shows it. Link it now if it's still
+    // unclaimed — rows already attached to someone are left alone.
+    if (!exists.personId) {
+      const from = message.envelope?.from?.[0]?.address ?? "";
+      const to = (message.envelope?.to ?? []).map((a) => a.address).filter((a): a is string => !!a);
+      const { counterparties } = resolveDirection(account.email, from, to);
+      const owner = counterparties.length
+        ? await db.person.findFirst({
+            where: {
+              workspaceId: account.workspaceId,
+              deletedAt: null,
+              OR: counterparties.map((a) => ({ email: { equals: a, mode: "insensitive" as const } })),
+            },
+            select: { id: true },
+          })
+        : null;
+      if (owner) await db.email.update({ where: { id: exists.id }, data: { personId: owner.id } });
+    }
     if (message.uid > account.imapLastUid) {
       account = await db.mailboxAccount.update({ where: { id: account.id }, data: { imapLastUid: message.uid } });
     }
@@ -92,8 +126,17 @@ async function saveMessage(
   }
 
   const fromAddress = message.envelope?.from?.[0]?.address ?? "";
-  const person = fromAddress
-    ? await db.person.findFirst({ where: { workspaceId: account.workspaceId, deletedAt: null, email: { equals: fromAddress, mode: "insensitive" } } })
+  const toAddresses = (message.envelope?.to ?? []).map((a) => a.address).filter((a): a is string => !!a);
+
+  const { direction, counterparties } = resolveDirection(account.email, fromAddress, toAddresses);
+  const person = counterparties.length
+    ? await db.person.findFirst({
+        where: {
+          workspaceId: account.workspaceId,
+          deletedAt: null,
+          OR: counterparties.map((address) => ({ email: { equals: address, mode: "insensitive" as const } })),
+        },
+      })
     : null;
 
   const email = await db.email.create({
@@ -103,9 +146,9 @@ async function saveMessage(
       imapUid: message.uid,
       messageIdHeader: message.envelope?.messageId ?? undefined,
       inReplyTo: message.envelope?.inReplyTo ?? undefined,
-      direction: "received",
+      direction,
       from: fromAddress,
-      to: (message.envelope?.to ?? []).map((a) => a.address).filter((a): a is string => !!a),
+      to: toAddresses,
       cc: (message.envelope?.cc ?? []).map((a) => a.address).filter((a): a is string => !!a),
       bcc: [],
       subject: message.envelope?.subject ?? "(no subject)",
@@ -115,12 +158,14 @@ async function saveMessage(
     },
   });
 
-  if (person) {
+  const isNewReply = direction === "received" && !opts.silent;
+
+  if (person && isNewReply) {
     await cancelActiveEmailStepsOnReply(person.id, account.workspaceId);
     await cancelPendingCampaignStepsOnReply(person.id, account.workspaceId);
   }
 
-  if (account.createdById) {
+  if (account.createdById && isNewReply) {
     const senderLabel = person
       ? [person.firstName, person.lastName].filter(Boolean).join(" ")
       : fromAddress;
@@ -139,27 +184,41 @@ async function saveMessage(
     await publishNotification(account.createdById, notification);
   }
 
-  await sendReplyEmailNotification({ personId: person?.id ?? null, subject: email.subject, workspaceId: account.workspaceId });
+  if (isNewReply) {
+    await sendReplyEmailNotification({ personId: person?.id ?? null, subject: email.subject, workspaceId: account.workspaceId });
+  }
 
   // Save progress after every message, not just at the end — so a slow mailbox or a
-  // crashed/killed poll never loses ground and re-scans messages it already saved.
-  account = await db.mailboxAccount.update({ where: { id: account.id }, data: { imapLastUid: message.uid } });
+  // crashed/killed poll never loses ground and re-scans messages it already saved. Only ever
+  // moves forward: a backfill reads mail older than the mark, and letting that pull the mark
+  // backwards would make the next routine poll re-scan everything in between.
+  if (message.uid > account.imapLastUid) {
+    account = await db.mailboxAccount.update({ where: { id: account.id }, data: { imapLastUid: message.uid } });
+  }
   return { saved: true, account };
 }
 
-async function fetchAndSave(client: ImapFlow, account: MailboxAccount, search: SearchObject) {
+async function fetchAndSave(
+  client: ImapFlow,
+  account: MailboxAccount,
+  search: SearchObject,
+  // The routine poll skips anything at or below the high-water mark. A backfill has to ignore
+  // it — the whole point is reading mail older than the last poll. saveMessage dedupes on
+  // (mailboxAccountId, imapUid) either way, so re-reading is safe, just slower.
+  opts: { ignoreHighWaterMark?: boolean; silent?: boolean } = {}
+) {
   // imapflow's connection handles one command at a time — issuing a second fetch() (for
   // bodyParts, inside saveMessage) while the first fetch()'s AsyncIterableIterator is still
   // open deadlocks the connection forever. Drain this iterator to a plain array first, so the
   // per-message bodyParts fetch below always runs against an idle connection.
   const messages: FetchMessageObject[] = [];
   for await (const message of client.fetch(search, { uid: true, envelope: true, bodyStructure: true })) {
-    if (message.uid > account.imapLastUid) messages.push(message);
+    if (opts.ignoreHighWaterMark || message.uid > account.imapLastUid) messages.push(message);
   }
 
   let found = 0;
   for (const message of messages) {
-    const result = await saveMessage(client, account, message);
+    const result = await saveMessage(client, account, message, { silent: opts.silent });
     account = result.account;
     if (result.saved) found++;
   }
@@ -200,6 +259,65 @@ export async function pollMailboxAccount(account: MailboxAccount) {
       }
     } finally {
       lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+
+  return found;
+}
+
+// Fallback names for the Sent folder when the server doesn't advertise the \Sent special-use
+// flag. Matched against the last path segment, lowercased, so "[Gmail]/Sent Mail" works too.
+const SENT_FOLDER_NAMES = new Set([
+  "sent",
+  "sent items",
+  "sent mail",
+  "sent messages",
+  "outbox",
+]);
+
+// Backfill for one address across one mailbox: every message to or from it, no date window and
+// no UID floor. Unlike the routine poll this also walks Sent — prior outbound mail to a lead is
+// exactly the history worth surfacing — so it searches both directions and both folders.
+export async function backfillAddressOnMailbox(account: MailboxAccount, address: string) {
+  const client = new ImapFlow({
+    host: account.imapHost,
+    port: account.imapPort,
+    secure: account.imapPort === 993,
+    auth: { user: account.username, pass: decrypt(account.password) },
+    logger: false,
+    connectionTimeout: 10_000,
+  });
+
+  let found = 0;
+  try {
+    await client.connect();
+
+    // \Sent is the special-use flag, but not every server advertises it — Maildoso (the provider
+    // behind these inboxes) returns no specialUse at all while plainly having a "Sent" folder.
+    // Relying on the flag alone silently skipped Sent everywhere, so prior outbound mail to a
+    // lead never got imported. Falls back to matching common folder names.
+    const folders = await client.list();
+    const sent =
+      folders.find((box) => box.specialUse === "\\Sent") ??
+      folders.find((box) => SENT_FOLDER_NAMES.has(box.path.split(box.delimiter ?? "/").pop()?.toLowerCase() ?? ""));
+    const boxes = ["INBOX", ...(sent ? [sent.path] : [])];
+
+    for (const box of boxes) {
+      const lock = await client.getMailboxLock(box);
+      try {
+        const pass = await fetchAndSave(
+          client,
+          account,
+          { or: [{ from: address }, { to: address }] },
+          { ignoreHighWaterMark: true, silent: true }
+        );
+        account = pass.account;
+        found += pass.found;
+      } finally {
+        lock.release();
+      }
     }
   } finally {
     await client.logout().catch(() => client.close());

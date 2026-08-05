@@ -5,6 +5,7 @@ import { getDefaultContactStageLabel } from "@/lib/actions/contact-pipeline-stag
 import { deriveJobTitleFields } from "@/lib/job-title";
 import { deriveRevenueRange, parseEmployeeCountInput } from "@/lib/firmographics";
 import { caenToIndustry } from "@/lib/caen";
+import { queueHistoryBackfill } from "@/lib/queue-history-backfill";
 import { getSetting, SETTING_KEYS } from "@/lib/workspace-settings";
 import {
   missingRequiredFields,
@@ -212,6 +213,8 @@ async function importPersonRow(
   });
 
   await writeCustomFieldValues(workspaceId, record, person.id, customFieldById);
+
+  if (person.email) await queueHistoryBackfill(person.id, workspaceId);
 }
 
 async function writeCustomFieldValues(

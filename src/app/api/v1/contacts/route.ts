@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireApiKey } from "@/lib/api-key";
 import { assertLimit } from "@/lib/entitlements";
 import { deriveJobTitleFields } from "@/lib/job-title";
+import { queueHistoryBackfill } from "@/lib/queue-history-backfill";
 
 // "Contact" is the public-API name for what the rest of the codebase models as Person.
 export async function POST(req: Request) {
@@ -45,6 +46,8 @@ export async function POST(req: Request) {
       companyId: body.companyId || null,
     },
   });
+
+  if (person.email) await queueHistoryBackfill(person.id, workspaceId);
 
   return NextResponse.json(person, { status: 201 });
 }

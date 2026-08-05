@@ -13,15 +13,18 @@ export function WorkspaceSearch() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<WorkspaceSearchResult[]>([]);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   useEffect(() => {
     if (open) {
-      const r = inputRef.current?.getBoundingClientRect();
-      if (r) setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) setRect({ top: r.bottom + 6, left: r.left });
+    } else {
+      setQuery("");
     }
   }, [open]);
 
@@ -44,7 +47,6 @@ export function WorkspaceSearch() {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        inputRef.current?.focus();
         setOpen(true);
       }
     }
@@ -56,14 +58,11 @@ export function WorkspaceSearch() {
     if (!open) return;
     function onClick(e: MouseEvent) {
       const target = e.target as Node;
-      if (inputRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      if (btnRef.current?.contains(target) || panelRef.current?.contains(target)) return;
       setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setOpen(false);
-        inputRef.current?.blur();
-      }
+      if (e.key === "Escape") setOpen(false);
     }
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
@@ -81,29 +80,39 @@ export function WorkspaceSearch() {
 
   return (
     <>
-      <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-border text-[13px] text-subtle focus-within:text-foreground focus-within:border-accent transition-colors">
-        <Search size={15} strokeWidth={1.75} className="shrink-0" />
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setOpen(true)}
-          placeholder="Search"
-          className="w-full bg-transparent outline-none placeholder:text-subtle text-foreground"
-        />
-        <kbd className="shrink-0 rounded border border-border px-1 text-[10px] font-medium text-subtle">⌘K</kbd>
-      </div>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        title="Search (⌘K)"
+        className="p-1.5 rounded-md text-subtle hover:bg-muted hover:text-foreground transition-colors"
+      >
+        <Search size={15} strokeWidth={1.75} />
+      </button>
 
       {open &&
         rect &&
-        query.trim() &&
         createPortal(
           <div
             ref={panelRef}
-            style={{ top: rect.top, left: rect.left, width: rect.width }}
-            className="fixed z-[100] rounded-md border border-border bg-background shadow-lg max-h-80 overflow-y-auto py-1"
+            style={{ top: rect.top, left: rect.left }}
+            className="fixed z-[100] w-72 rounded-md border border-border bg-background shadow-lg"
           >
-            {results.length === 0 ? (
+            <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border text-subtle">
+              <Search size={14} strokeWidth={1.75} className="shrink-0" />
+              <input
+                ref={inputRef}
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search"
+                className="w-full bg-transparent outline-none text-[13px] placeholder:text-subtle text-foreground"
+              />
+              <kbd className="shrink-0 rounded border border-border px-1 text-[10px] font-medium">⌘K</kbd>
+            </div>
+            <div className="max-h-80 overflow-y-auto py-1">
+            {!query.trim() ? (
+              <div className="px-3 py-3 text-[12px] text-subtle text-center">Type to search…</div>
+            ) : results.length === 0 ? (
               <div className="px-3 py-4 text-[13px] text-subtle text-center">No results</div>
             ) : (
               results.map((r) => {
@@ -123,6 +132,7 @@ export function WorkspaceSearch() {
                 );
               })
             )}
+            </div>
           </div>,
           document.body
         )}

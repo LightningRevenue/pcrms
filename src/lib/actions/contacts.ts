@@ -12,6 +12,7 @@ import { deriveJobTitleFields } from "@/lib/job-title";
 import { deriveRevenueRange, parseEmployeeCountInput } from "@/lib/firmographics";
 import { missingRequiredFields, requiredFieldsError } from "@/lib/required-fields";
 import { getRequiredPersonFields } from "@/lib/actions/required-fields";
+import { queueHistoryBackfill } from "@/lib/queue-history-backfill";
 
 export type CreateContactInput = {
   firstName: string;
@@ -113,6 +114,8 @@ export async function createContact(input: CreateContactInput) {
   await db.activity.create({
     data: { workspaceId, entityType: "person", entityId: person.id, kind: "created", actorId: userId },
   });
+
+  if (person.email) await queueHistoryBackfill(person.id, workspaceId);
 
   revalidatePath("/contacts");
   return person.id;
